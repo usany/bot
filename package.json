@@ -10,6 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@opencode-ai/sdk": "^1.18.32",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
