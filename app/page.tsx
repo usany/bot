@@ -1,6 +1,7 @@
+'use client'
+
 import { useState, useRef, useEffect } from 'react'
-import { createOpencodeClient } from '@opencode-ai/sdk/client'
-import './App.css'
+import './chat.css'
 
 interface Message {
   id: string
@@ -9,10 +10,7 @@ interface Message {
   timestamp: Date
 }
 
-// Vite proxies /opencode to `opencode serve` (see vite.config.ts), so no CORS setup is needed.
-const client = createOpencodeClient({ baseUrl: `${window.location.origin}/opencode` })
-
-function App() {
+export default function Page() {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
@@ -36,19 +34,33 @@ function App() {
     scrollToBottom()
   }, [messages])
 
+  // OpenCode can take a few seconds to start (or restart), so keep polling until it answers.
   useEffect(() => {
+    if (isConnected) return
+
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout>
+
     const checkConnection = async () => {
       try {
-        await client.config.get({ throwOnError: true })
+        const response = await fetch('/api/health')
+        if (!response.ok) throw new Error(`Health check failed: ${response.status}`)
+        if (cancelled) return
         setIsConnected(true)
-      } catch (err) {
-        setError('Could not connect to OpenCode. Make sure `opencode serve --port 4096` is running.')
-        console.error('Connection error:', err)
+        setError(null)
+      } catch {
+        if (cancelled) return
+        setError('Waiting for OpenCode… Make sure `opencode serve --port 4096` is running.')
+        timer = setTimeout(checkConnection, 2000)
       }
     }
 
     checkConnection()
-  }, [])
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [isConnected])
 
   const handleSend = async () => {
     if (!input.trim() || !isConnected) return
@@ -67,28 +79,20 @@ function App() {
     setError(null)
 
     try {
-      if (!sessionIdRef.current) {
-        const { data: session } = await client.session.create({
-          body: { title: 'Responsive Chatbot' },
-          throwOnError: true,
-        })
-        sessionIdRef.current = session.id
-      }
-
-      const { data } = await client.session.prompt({
-        path: { id: sessionIdRef.current },
-        body: { parts: [{ type: 'text', text: userInput }] },
-        throwOnError: true,
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: userInput, sessionId: sessionIdRef.current }),
       })
-
-      const text = data.parts
-        .flatMap((part) => (part.type === 'text' ? [part.text] : []))
-        .join('\n')
-        .trim()
+      const data = await response.json()
+      if (!response.ok) {
+        throw new Error(data.error ?? `Server error: ${response.status}`)
+      }
+      sessionIdRef.current = data.sessionId
 
       const botMessage: Message = {
         id: (Date.now() + 1).toString(),
-        text: text || 'I received your message but could not generate a response.',
+        text: data.message,
         sender: 'bot',
         timestamp: new Date(),
       }
@@ -130,7 +134,7 @@ function App() {
           >
             <div className="message-bubble">
               <p>{message.text}</p>
-              <span className="timestamp">
+              <span className="timestamp" suppressHydrationWarning>
                 {message.timestamp.toLocaleTimeString([], {
                   hour: '2-digit',
                   minute: '2-digit',
@@ -174,5 +178,3 @@ function App() {
     </div>
   )
 }
-
-export default App
