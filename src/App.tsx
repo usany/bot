@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect } from 'react'
-import { createOpencode } from '@opencode-ai/sdk'
 import './App.css'
 
 interface Message {
@@ -8,6 +7,8 @@ interface Message {
   sender: 'user' | 'bot'
   timestamp: Date
 }
+
+const API_BASE_URL = 'http://localhost:5000/api'
 
 function App() {
   const [messages, setMessages] = useState<Message[]>([
@@ -21,9 +22,8 @@ function App() {
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [isConnected, setIsConnected] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const sessionIdRef = useRef<string | null>(null)
-  const clientRef = useRef<any>(null)
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -34,28 +34,23 @@ function App() {
   }, [messages])
 
   useEffect(() => {
-    const initializeClient = async () => {
+    const checkConnection = async () => {
       try {
-        const { client } = await createOpencode()
-        clientRef.current = client
-
-        // Create a new session for this conversation
-        const session = await client.session.create({
-          body: { title: 'Responsive Chatbot' },
-        })
-        sessionIdRef.current = session.id
+        const response = await fetch(`${API_BASE_URL}/health`)
+        if (response.ok) {
+          setIsConnected(true)
+        }
       } catch (err) {
-        const errorMsg = err instanceof Error ? err.message : 'Failed to initialize chatbot'
-        setError(errorMsg)
-        console.error('Initialization error:', err)
+        setError('Could not connect to server. Make sure the backend is running on port 3001.')
+        console.error('Connection error:', err)
       }
     }
 
-    initializeClient()
+    checkConnection()
   }, [])
 
   const handleSend = async () => {
-    if (!input.trim() || !clientRef.current || !sessionIdRef.current) return
+    if (!input.trim() || !isConnected) return
 
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -64,23 +59,27 @@ function App() {
       timestamp: new Date(),
     }
 
+    const userInput = input
     setMessages((prev) => [...prev, userMessage])
     setInput('')
     setIsLoading(true)
     setError(null)
 
     try {
-      const response = await clientRef.current.session.prompt({
-        path: { id: sessionIdRef.current },
-        body: {
-          parts: [{ type: 'text', text: input }],
-        },
+      const response = await fetch(`${API_BASE_URL}/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: userInput }),
       })
 
-      const botText = response.parts?.[0]?.text || 'I received your message but could not generate a response.'
+      if (!response.ok) {
+        throw new Error(`Server error: ${response.statusText}`)
+      }
+
+      const data = await response.json()
       const botMessage: Message = {
         id: (Date.now() + 1).toString(),
-        text: botText,
+        text: data.message,
         sender: 'bot',
         timestamp: new Date(),
       }
@@ -152,12 +151,12 @@ function App() {
           onChange={(e) => setInput(e.target.value)}
           onKeyPress={handleKeyPress}
           placeholder="Type your message..."
-          disabled={isLoading || !clientRef.current}
+          disabled={isLoading || !isConnected}
           className="message-input"
         />
         <button
           onClick={handleSend}
-          disabled={isLoading || !input.trim() || !clientRef.current}
+          disabled={isLoading || !input.trim() || !isConnected}
           className="send-button"
         >
           Send
