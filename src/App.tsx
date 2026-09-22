@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { createOpencodeClient } from '@opencode-ai/sdk/client'
 import './App.css'
 
 interface Message {
@@ -8,7 +9,8 @@ interface Message {
   timestamp: Date
 }
 
-const API_BASE_URL = 'http://localhost:5000/api'
+// Vite proxies /opencode to `opencode serve` (see vite.config.ts), so no CORS setup is needed.
+const client = createOpencodeClient({ baseUrl: `${window.location.origin}/opencode` })
 
 function App() {
   const [messages, setMessages] = useState<Message[]>([
@@ -24,6 +26,7 @@ function App() {
   const [error, setError] = useState<string | null>(null)
   const [isConnected, setIsConnected] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const sessionIdRef = useRef<string | null>(null)
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -36,12 +39,10 @@ function App() {
   useEffect(() => {
     const checkConnection = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/health`)
-        if (response.ok) {
-          setIsConnected(true)
-        }
+        await client.config.get({ throwOnError: true })
+        setIsConnected(true)
       } catch (err) {
-        setError('Could not connect to server. Make sure the backend is running on port 3001.')
+        setError('Could not connect to OpenCode. Make sure `opencode serve --port 4096` is running.')
         console.error('Connection error:', err)
       }
     }
@@ -66,20 +67,28 @@ function App() {
     setError(null)
 
     try {
-      const response = await fetch(`${API_BASE_URL}/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: userInput }),
-      })
-
-      if (!response.ok) {
-        throw new Error(`Server error: ${response.statusText}`)
+      if (!sessionIdRef.current) {
+        const { data: session } = await client.session.create({
+          body: { title: 'Responsive Chatbot' },
+          throwOnError: true,
+        })
+        sessionIdRef.current = session.id
       }
 
-      const data = await response.json()
+      const { data } = await client.session.prompt({
+        path: { id: sessionIdRef.current },
+        body: { parts: [{ type: 'text', text: userInput }] },
+        throwOnError: true,
+      })
+
+      const text = data.parts
+        .flatMap((part) => (part.type === 'text' ? [part.text] : []))
+        .join('\n')
+        .trim()
+
       const botMessage: Message = {
         id: (Date.now() + 1).toString(),
-        text: data.message,
+        text: text || 'I received your message but could not generate a response.',
         sender: 'bot',
         timestamp: new Date(),
       }

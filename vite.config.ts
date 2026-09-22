@@ -8,4 +8,13 @@ export default defineConfig({
     react(),
     babel({ presets: [reactCompilerPreset()] })
   ],
+  server: {
+    proxy: {
+      '/opencode': {
+        target: 'http://127.0.0.1:4096',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/opencode/, ''),
+      },
+    },
+  },
 })

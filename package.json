@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "server": "tsx server.ts",
+    "server": "opencode serve --port 4096",
     "start": "concurrently \"npm run server\" \"npm run dev\"",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
@@ -13,8 +13,6 @@
   },
   "dependencies": {
     "@opencode-ai/sdk": "^1.18.32",
-    "cors": "^2.8.5",
-    "express": "^4.18.2",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
@@ -29,7 +27,6 @@
     "babel-plugin-react-compiler": "^1.0.0",
     "concurrently": "^8.2.2",
     "oxlint": "^1.81.0",
-    "tsx": "^4.7.0",
     "typescript": "~6.0.2",
     "vite": "^8.3.0"
   }
