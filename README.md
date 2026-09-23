@@ -36,6 +36,10 @@ authentication to the API routes before exposing this to other people.
 pnpm workspace. OpenCode starts it over stdio from `opencode.json` (as the `project` MCP server), so
 its tools are available to the chat agent. Add tools in `mcp-server/src/opencode_mcp/server.py`.
 
+The agent is scoped to recruiting by `recruiting-agent.md` (listed under `instructions` in
+`opencode.json`): for anything else it calls the `off_topic_reply` tool and returns
+"I can only respond to recruiting questions."
+
 ```
 Browser ──▶ Next.js ──▶ opencode serve ──stdio──▶ mcp-server (uv)
 ```
