@@ -7,7 +7,7 @@
     "dev": "concurrently -n opencode,next \"pnpm opencode\" \"next dev\"",
     "opencode": "opencode serve --port 4096",
     "build": "next build",
-    "start": "next start",
+    "start": "concurrently -n opencode,next \"pnpm opencode\" \"next start\"",
     "lint": "oxlint",
     "mcp": "pnpm --filter opencode-mcp start",
     "mcp:test": "pnpm --filter opencode-mcp test"
