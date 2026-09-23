@@ -33,12 +33,15 @@ authentication to the API routes before exposing this to other people.
 ## MCP server
 
 `mcp-server/` is a Python ([MCP Python SDK](https://py.sdk.modelcontextprotocol.io/)) package in the
-pnpm workspace. It exposes OpenCode over MCP (stdio) with two tools: `health` and `chat`.
+pnpm workspace. OpenCode starts it over stdio from `opencode.json` (as the `project` MCP server), so
+its tools are available to the chat agent. Add tools in `mcp-server/src/opencode_mcp/server.py`.
 
-```sh
-pnpm mcp        # run the stdio server (needs uv; honours OPENCODE_URL)
-pnpm mcp:test   # pytest
-pnpm --filter opencode-mcp dev   # MCP Inspector
+```
+Browser ──▶ Next.js ──▶ opencode serve ──stdio──▶ mcp-server (uv)
 ```
 
-Claude Code: `claude mcp add opencode -- uv run --directory "$PWD/mcp-server" opencode-mcp`
+```sh
+pnpm mcp:test                    # pytest
+pnpm --filter opencode-mcp dev   # MCP Inspector
+curl localhost:4096/mcp          # {"project":{"status":"connected"}} while `pnpm dev` runs
+```

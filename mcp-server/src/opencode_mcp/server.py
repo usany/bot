@@ -1,55 +1,16 @@
-import os
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
-import httpx
 from mcp.server import MCPServer
 
-OPENCODE_URL = os.environ.get("OPENCODE_URL", "http://127.0.0.1:4096")
-
-mcp = MCPServer(
-    "OpenCode",
-    instructions="Chat with the local OpenCode server. Reuse the returned session_id to continue a conversation.",
-)
-
-
-def opencode_client() -> httpx.AsyncClient:
-    # Replaced in tests with a client backed by httpx.MockTransport.
-    return httpx.AsyncClient(base_url=OPENCODE_URL, timeout=httpx.Timeout(10, read=None))
+# Loaded by OpenCode via opencode.json; add the tools you want OpenCode's agent to have here.
+mcp = MCPServer("project", instructions="Project tools for the OpenCode chat agent.")
 
 
 @mcp.tool()
-async def health() -> str:
-    """Report whether the OpenCode server is reachable."""
-    try:
-        async with opencode_client() as client:
-            (await client.get("/config")).raise_for_status()
-    except httpx.HTTPError:
-        return "unavailable"
-    return "ready"
-
-
-@mcp.tool()
-async def chat(message: str, session_id: str | None = None) -> dict[str, str]:
-    """Send a message to OpenCode and return its reply.
-
-    Omit session_id to start a new session; pass the returned one to continue it.
-    """
-    if not message.strip():
-        raise ValueError("Message is required")
-
-    async with opencode_client() as client:
-        if not session_id:
-            res = await client.post("/session", json={"title": "MCP Chat"})
-            res.raise_for_status()
-            session_id = res.json()["id"]
-
-        res = await client.post(
-            f"/session/{session_id}/message",
-            json={"parts": [{"type": "text", "text": message}]},
-        )
-        res.raise_for_status()
-
-    text = "\n".join(p["text"] for p in res.json()["parts"] if p.get("type") == "text").strip()
-    return {"message": text, "session_id": session_id}
+def current_time(timezone: str = "UTC") -> str:
+    """Return the current date and time as ISO 8601 in the given IANA timezone (e.g. Asia/Seoul)."""
+    return datetime.now(ZoneInfo(timezone)).isoformat(timespec="seconds")
 
 
 def main() -> None:
