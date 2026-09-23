@@ -1,0 +1,10 @@
+{
+  "name": "opencode-mcp",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "dev": "uv run mcp dev src/opencode_mcp/server.py",
+    "start": "uv run opencode-mcp",
+    "test": "uv run pytest"
+  }
+}

@@ -8,7 +8,9 @@
     "opencode": "opencode serve --port 4096",
     "build": "next build",
     "start": "next start",
-    "lint": "oxlint"
+    "lint": "oxlint",
+    "mcp": "pnpm --filter opencode-mcp start",
+    "mcp:test": "pnpm --filter opencode-mcp test"
   },
   "dependencies": {
     "@opencode-ai/sdk": "^1.18.32",
