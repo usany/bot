@@ -37,7 +37,8 @@ pnpm workspace. OpenCode starts it over stdio from `opencode.json` (as the `proj
 its tools are available to the chat agent. Add tools in `mcp-server/src/opencode_mcp/server.py`.
 
 The agent is scoped to recruiting by `recruiting-agent.md` (listed under `instructions` in
-`opencode.json`): for anything else it calls the `off_topic_reply` tool and returns
+`opencode.json`). Current date/time questions are also allowed and answered with the `current_time`
+tool. For anything else it calls the `off_topic_reply` tool and returns
 "I can only respond to recruiting questions."
 
 ```
