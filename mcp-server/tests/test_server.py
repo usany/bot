@@ -123,6 +123,7 @@ async def test_search_jooble_jobs(client: Client, jooble):
         "search_jooble_jobs", {"keyword": "developer", "location": "Seoul", "results_per_page": 5}
     )
     data = result.structured_content
+    assert data["notice"] == '🔎 Searched Jooble for "developer" in Seoul'
     assert data["total"] == 1
     job = data["jobs"][0]
     assert job["title"] == "Backend Developer"

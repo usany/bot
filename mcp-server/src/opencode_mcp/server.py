@@ -34,7 +34,8 @@ mcp = MCPServer(
     instructions=(
         "This assistant only answers recruiting questions (jobs, hiring, interviews, resumes, candidates, "
         "offers), plus questions about the current date or time, which it answers with current_time. Use "
-        "search_jooble_jobs or search_job_postings to look up real job postings on Work24 (고용24). For any "
+        "search_jooble_jobs (Jooble) or search_job_postings (Work24, 고용24) to look up real job postings; "
+        "when search_jooble_jobs is used, start the reply with its notice text verbatim. For any "
         "other message, call off_topic_reply and reply with its result verbatim."
     ),
 )
@@ -131,8 +132,9 @@ async def search_jooble_jobs(
         page: 1-based page number.
         results_per_page: Number of postings per page (1-100).
 
-    Returns {total, jobs}, where each job has title, company, location, salary, type, snippet, source,
-    updated and link (URL of the posting).
+    Returns {notice, total, jobs}, where each job has title, company, location, salary, type, snippet,
+    source, updated and link (URL of the posting). Always start your reply to the user with the notice
+    text exactly as returned, so they know the results came from Jooble.
     """
     api_key = os.environ.get("JOOBLE_KEY")
     if not api_key:
@@ -154,7 +156,9 @@ async def search_jooble_jobs(
 
     data = response.json()
     fields = ("title", "company", "location", "salary", "type", "snippet", "source", "updated", "link")
+    where = f" in {location}" if location else ""
     return {
+        "notice": f'🔎 Searched Jooble for "{keyword}"{where}',
         "total": data.get("totalCount", 0),
         "jobs": [{f: _clean_text(job.get(f)) for f in fields} for job in data.get("jobs", [])],
     }
