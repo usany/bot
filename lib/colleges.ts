@@ -2,31 +2,42 @@ import 'server-only'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
-export interface CollegeEntry {
+export interface DegreeEntry {
   college: string
   degree: string
-  credits1: number | null
-  credits2: number | null
+  macroTrack: number | null
+  microTrack: number | null
 }
 
-let cache: CollegeEntry[] | null = null
+let cache: DegreeEntry[] | null = null
 
-export async function loadColleges(): Promise<CollegeEntry[]> {
+export async function loadColleges(): Promise<DegreeEntry[]> {
   if (cache) return cache
   const path = join(process.cwd(), 'colleges.json')
   const raw = await readFile(path, 'utf8')
-  cache = JSON.parse(raw) as CollegeEntry[]
+  const parsed = JSON.parse(raw) as Array<{
+    college: string
+    degree: string
+    credits1: number | null
+    credits2: number | null
+  }>
+  cache = parsed.map((e) => ({
+    college: e.college,
+    degree: e.degree,
+    macroTrack: e.credits1,
+    microTrack: e.credits2,
+  }))
   return cache
 }
 
 /**
- * Recommend departments to study given the user's interests.
+ * Recommend degrees (majors/departments) to study given the user's interests.
  * This is exposed to the model as a callable function (recommend_study).
  */
 export async function recommendStudy(input: {
   interest: string
   college?: string
-}): Promise<{ colleges: CollegeEntry[]; summary: string }> {
+}): Promise<{ degrees: DegreeEntry[]; summary: string }> {
   const all = await loadColleges()
   const interest = (input.interest ?? '').toLowerCase()
 
@@ -57,12 +68,18 @@ export async function recommendStudy(input: {
   // suggest from the full catalogue).
   const recommended = top.length > 0 ? top : matches
 
-  const names = recommended.map((e) => `${e.degree} (${e.college})`).join(', ')
+  const names = recommended
+    .map((e) => {
+      const macro = e.macroTrack != null ? `${e.macroTrack} credits (macro track)` : 'macro track: N/A'
+      const micro = e.microTrack != null ? `${e.microTrack} credits (micro track)` : 'micro track: N/A'
+      return `${e.degree} (${e.college}) — ${macro}, ${micro}`
+    })
+    .join('\n')
   return {
-    colleges: recommended,
+    degrees: recommended,
     summary:
       recommended.length > 0
-        ? `Recommended departments for "${input.interest}": ${names}`
-        : `No departments matched "${input.interest}".`,
+        ? `Recommended degrees for "${input.interest}":\n${names}`
+        : `No degrees matched "${input.interest}".`,
   }
 }

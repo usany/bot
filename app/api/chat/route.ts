@@ -19,9 +19,9 @@ const STUDY_TOOLS = [
     function: {
       name: 'recommend_study',
       description:
-        'Recommend what to study (majors/departments) from the colleges catalogue. ' +
-        'Call this when the user asks for a study/major recommendation, e.g. "what should I study?", ' +
-        '"recommend a major", "recommend what to study".',
+        'Recommend what degree to study (majors/departments) from the colleges catalogue. ' +
+        'Call this when the user asks for a degree/major recommendation, e.g. "what should I study?", ' +
+        '"recommend a major", "recommend what degree to study".',
       parameters: {
         type: 'object' as const,
         properties: {
