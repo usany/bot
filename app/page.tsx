@@ -22,7 +22,7 @@ export default function Page() {
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [isConnected, setIsConnected] = useState(false)
+  const [isConnected, setIsConnected] = useState(true)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const sessionIdRef = useRef<string | null>(null)
 
@@ -50,7 +50,7 @@ export default function Page() {
         setError(null)
       } catch {
         if (cancelled) return
-        setError('Waiting for OpenCode… Make sure `opencode serve --port 4096` is running.')
+        setError('Waiting for the server… Please try again.')
         timer = setTimeout(checkConnection, 2000)
       }
     }
@@ -117,7 +117,7 @@ export default function Page() {
     <div className="chatbot-container">
       <div className="chatbot-header">
         <h1>Chat Assistant</h1>
-        <p>Powered by OpenCode SDK</p>
+        <p>Powered by OpenAI via OpenRouter</p>
       </div>
 
       {error && (

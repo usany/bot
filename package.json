@@ -4,16 +4,15 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently -n opencode,next \"pnpm opencode\" \"next dev\"",
-    "opencode": "opencode serve --port 4096",
+    "dev": "next dev",
     "build": "next build",
-    "start": "concurrently -n opencode,next \"pnpm opencode\" \"next start\"",
+    "start": "next start",
     "lint": "oxlint",
     "mcp": "pnpm --filter opencode-mcp start",
     "mcp:test": "pnpm --filter opencode-mcp test"
   },
   "dependencies": {
-    "@opencode-ai/sdk": "^1.18.32",
+    "openai": "^5.0.0",
     "next": "^16.3.6",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

@@ -1,4 +1,4 @@
-import { opencode } from '@/lib/opencode'
+import { openai, CHAT_MODEL } from '@/lib/openai'
 
 interface ChatRequest {
   message?: unknown
@@ -6,36 +6,22 @@ interface ChatRequest {
 }
 
 export async function POST(request: Request) {
-  const { message, sessionId } = (await request.json().catch(() => ({}))) as ChatRequest
+  const { message } = (await request.json().catch(() => ({}))) as ChatRequest
 
   if (typeof message !== 'string' || !message.trim()) {
     return Response.json({ error: 'Message is required' }, { status: 400 })
   }
 
   try {
-    let id = typeof sessionId === 'string' && sessionId ? sessionId : null
-    if (!id) {
-      const { data: session } = await opencode.session.create({
-        body: { title: 'Responsive Chatbot' },
-        throwOnError: true,
-      })
-      id = session.id
-    }
-
-    const { data } = await opencode.session.prompt({
-      path: { id },
-      body: { parts: [{ type: 'text', text: message }] },
-      throwOnError: true,
+    const completion = await openai.chat.completions.create({
+      model: CHAT_MODEL,
+      messages: [{ role: 'user', content: message }],
     })
 
-    const text = data.parts
-      .flatMap((part) => (part.type === 'text' ? [part.text] : []))
-      .join('\n')
-      .trim()
+    const text = completion.choices[0]?.message?.content?.trim() ?? ''
 
     return Response.json({
       message: text || 'I received your message but could not generate a response.',
-      sessionId: id,
     })
   } catch (err) {
     console.error('Chat error:', err)
