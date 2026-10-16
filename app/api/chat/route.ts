@@ -1,21 +1,38 @@
 import { openai, CHAT_MODEL } from '@/lib/openai'
 
+interface ChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
 interface ChatRequest {
   message?: unknown
-  sessionId?: unknown
+  history?: unknown
 }
 
 export async function POST(request: Request) {
-  const { message } = (await request.json().catch(() => ({}))) as ChatRequest
+  const { message, history } = (await request.json().catch(() => ({}))) as ChatRequest
 
   if (typeof message !== 'string' || !message.trim()) {
     return Response.json({ error: 'Message is required' }, { status: 400 })
   }
 
+  const prior: ChatMessage[] = Array.isArray(history)
+    ? history
+        .filter(
+          (m): m is ChatMessage =>
+            !!m &&
+            typeof m.role === 'string' &&
+            (m.role === 'user' || m.role === 'assistant') &&
+            typeof m.content === 'string',
+        )
+        .map((m) => ({ role: m.role, content: m.content }))
+    : []
+
   try {
     const completion = await openai.chat.completions.create({
       model: CHAT_MODEL,
-      messages: [{ role: 'user', content: message }],
+      messages: [...prior, { role: 'user', content: message }],
     })
 
     const text = completion.choices[0]?.message?.content?.trim() ?? ''

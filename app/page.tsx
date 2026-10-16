@@ -24,7 +24,7 @@ export default function Page() {
   const [error, setError] = useState<string | null>(null)
   const [isConnected, setIsConnected] = useState(true)
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const sessionIdRef = useRef<string | null>(null)
+  const historyRef = useRef<{ role: 'user' | 'assistant'; content: string }[]>([])
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -82,13 +82,19 @@ export default function Page() {
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: userInput, sessionId: sessionIdRef.current }),
+        body: JSON.stringify({ message: userInput, history: historyRef.current }),
       })
       const data = await response.json()
       if (!response.ok) {
         throw new Error(data.error ?? `Server error: ${response.status}`)
       }
-      sessionIdRef.current = data.sessionId
+
+      // Append this turn to the shared history so the model can recall prior messages.
+      historyRef.current = [
+        ...historyRef.current,
+        { role: 'user', content: userInput },
+        { role: 'assistant', content: data.message },
+      ]
 
       const botMessage: Message = {
         id: (Date.now() + 1).toString(),
