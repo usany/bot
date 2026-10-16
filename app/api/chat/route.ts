@@ -1,8 +1,8 @@
 import { openai, CHAT_MODEL } from '@/lib/openai'
-import { recommendStudy } from '@/lib/colleges'
+import { recommendStudy } from '@/lib/mcp'
 
 interface ChatMessage {
-  role: 'user' | 'assistant'
+  role: 'user' | 'assistant' | 'system'
   content: string
 }
 
@@ -10,38 +10,6 @@ interface ChatRequest {
   message?: unknown
   history?: unknown
 }
-
-// The "recommend_study" function the model can call when the user asks what to
-// study (recommend a major/department) using the colleges file.
-const STUDY_TOOLS = [
-  {
-    type: 'function' as const,
-    function: {
-      name: 'recommend_study',
-      description:
-        'Recommend what degree to study (majors/departments) from the colleges catalogue. ' +
-        'Call this when the user asks for a degree/major recommendation, e.g. "what should I study?", ' +
-        '"recommend a major", "recommend what degree to study".',
-      parameters: {
-        type: 'object' as const,
-        properties: {
-          interest: {
-            type: 'string',
-            description:
-              "The user's interest, field or keyword to match majors against (e.g. '컴퓨터', 'AI', '데이터').",
-          },
-          college: {
-            type: 'string',
-            description:
-              'Optional college name to restrict recommendations to (e.g. "이과대학").',
-          },
-        },
-        required: ['interest'],
-        additionalProperties: false,
-      },
-    },
-  },
-]
 
 export async function POST(request: Request) {
   const { message, history } = (await request.json().catch(() => ({}))) as ChatRequest
@@ -56,80 +24,44 @@ export async function POST(request: Request) {
           (m): m is ChatMessage =>
             !!m &&
             typeof m.role === 'string' &&
-            (m.role === 'user' || m.role === 'assistant') &&
+            (m.role === 'user' || m.role === 'assistant' || m.role === 'system') &&
             typeof m.content === 'string',
         )
         .map((m) => ({ role: m.role, content: m.content }))
     : []
 
-const messages = [...prior, { role: 'user' as const, content: message }]
-
   // Reliably detect when the user is asking for a degree/major/department
-  // recommendation. The model's auto tool selection is inconsistent, so if the
-  // message clearly asks for a recommendation, force the tool call.
+  // recommendation. When they do, ask the MCP server for recommendations and
+  // hand them to the model as context instead of using OpenAI function-calling.
   const wantsRecommendation =
     /recommend|추천|학과|전공|major|degree|department|what should i study|공부/i.test(message)
+
+  let context = ''
+  if (wantsRecommendation) {
+    try {
+      context = await recommendStudy({ interest: message })
+    } catch (err) {
+      console.error('MCP recommendation failed:', err)
+    }
+  }
+
+  const systemPrompt = context
+    ? `You are a helpful assistant. The user asked what to study. Use the recommendations below (retrieved from the college catalogue) to answer in natural language, in the same language the user wrote. Do not invent degrees or credit numbers beyond what is listed.\n\n${context}`
+    : undefined
+
+  const messages: ChatMessage[] = [
+    ...(systemPrompt ? [{ role: 'system' as const, content: systemPrompt }] : []),
+    ...prior,
+    { role: 'user' as const, content: message },
+  ]
 
   try {
     const completion = await openai.chat.completions.create({
       model: CHAT_MODEL,
       messages,
-      tools: STUDY_TOOLS,
-      tool_choice: wantsRecommendation ? 'required' : 'auto',
     })
 
-    const choice = completion.choices[0]?.message
-    const toolCalls = choice?.tool_calls ?? []
-    let text = choice?.content?.trim() ?? ''
-
-    // If the model asked to recommend a major, run the function and give the
-    // model its result so it can produce a natural-language answer.
-    if (toolCalls.length > 0) {
-      const toolMessages = await Promise.all(
-        toolCalls.map(async (call) => {
-          if (!('function' in call)) {
-            return {
-              role: 'tool' as const,
-              tool_call_id: call.id,
-              content: JSON.stringify({ error: 'Unsupported tool call' }),
-            }
-          }
-          if (call.function.name !== 'recommend_study') {
-            return {
-              role: 'tool' as const,
-              tool_call_id: call.id,
-              content: JSON.stringify({ error: `Unknown function ${call.function.name}` }),
-            }
-          }
-          try {
-            const args = JSON.parse(call.function.arguments ?? '{}')
-            const result = await recommendStudy({
-              interest: args.interest ?? '',
-              college: args.college,
-            })
-            return {
-              role: 'tool' as const,
-              tool_call_id: call.id,
-              content: JSON.stringify(result),
-            }
-          } catch (err) {
-            return {
-              role: 'tool' as const,
-              tool_call_id: call.id,
-              content: JSON.stringify({
-                error: err instanceof Error ? err.message : 'Failed to load colleges',
-              }),
-            }
-          }
-        }),
-      )
-
-      const followUp = await openai.chat.completions.create({
-        model: CHAT_MODEL,
-        messages: [...messages, choice, ...toolMessages],
-      })
-      text = followUp.choices[0]?.message?.content?.trim() || text
-    }
+    const text = completion.choices[0]?.message?.content?.trim() ?? ''
 
     return Response.json({
       message: text || 'I received your message but could not generate a response.',

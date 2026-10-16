@@ -125,7 +125,7 @@ export default function Page() {
     <div className="chatbot-container">
       <div className="chatbot-header">
         <h1>Chat Assistant</h1>
-        <p>Powered by OpenAI via OpenRouter</p>
+        <p>Powered by Groq · degree recommendations via MCP</p>
       </div>
 
       {error && (
