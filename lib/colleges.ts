@@ -15,15 +15,13 @@ export async function loadColleges(): Promise<DegreeEntry[]> {
   if (cache) return cache
   const path = join(process.cwd(), 'colleges.json')
   const raw = await readFile(path, 'utf8')
-  const parsed = JSON.parse(raw) as Array<{
-    college: string
-    degree: string
-    credits1: number | null
-    credits2: number | null
-  }>
-  cache = parsed.map((e) => ({
+  const parsed = JSON.parse(raw) as Record<
+    string,
+    { college: string; credits1: number | null; credits2: number | null }
+  >
+  cache = Object.entries(parsed).map(([degree, e]) => ({
     college: e.college,
-    degree: e.degree,
+    degree,
     macroTrack: e.credits1,
     microTrack: e.credits2,
   }))
