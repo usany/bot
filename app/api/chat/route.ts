@@ -30,19 +30,31 @@ export async function POST(request: Request) {
         .map((m) => ({ role: m.role, content: m.content }))
     : []
 
-  // Reliably detect when the user is asking for a degree/major/department
-  // recommendation. When they do, ask the MCP server for recommendations and
-  // hand them to the model as context instead of using OpenAI function-calling.
-  const wantsRecommendation =
-    /recommend|추천|학과|전공|major|degree|department|what should i study|공부/i.test(message)
-
+  // Let the model decide whether the user wants a degree/major recommendation,
+  // instead of matching keywords that inevitably miss cases.
   let context = ''
-  if (wantsRecommendation) {
-    try {
+  try {
+    const classification = await openai.chat.completions.create({
+      model: CHAT_MODEL,
+      messages: [
+        {
+          role: 'system',
+          content:
+            'Answer with exactly one JSON object: {"wantsRecommendation": boolean}. ' +
+            'True only when the user is asking what to study, for a degree/major/department ' +
+            'recommendation, or which subject matches their interest.',
+        },
+        { role: 'user', content: message },
+      ],
+      response_format: { type: 'json_object' },
+    })
+    const raw = classification.choices[0]?.message?.content ?? ''
+    const parsed = JSON.parse(raw)
+    if (parsed.wantsRecommendation === true) {
       context = await recommendStudy({ interest: message })
-    } catch (err) {
-      console.error('MCP recommendation failed:', err)
     }
+  } catch (err) {
+    console.error('MCP recommendation failed:', err)
   }
 
   const systemPrompt = context
