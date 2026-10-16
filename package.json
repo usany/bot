@@ -1,5 +1,5 @@
 {
-  "name": "opencode-chat",
+  "name": "chat-assistant",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -7,9 +7,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "oxlint",
-    "mcp": "pnpm --filter opencode-mcp start",
-    "mcp:test": "pnpm --filter opencode-mcp test"
+    "lint": "oxlint"
   },
   "dependencies": {
     "openai": "^5.0.0",

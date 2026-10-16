@@ -1,52 +1,34 @@
-# OpenCode Chat
+# Chat Assistant
 
-A Next.js chat UI backed by an [OpenCode](https://opencode.ai) server.
+A Next.js chat UI backed by Groq (via the OpenAI SDK).
 
 ```
-Browser ──▶ Next.js /api/chat, /api/health ──▶ opencode serve (:4096)
+Browser ──▶ Next.js /api/chat, /api/health ──▶ Groq
 ```
 
-The browser only talks to the Next.js API routes. OpenCode is reached server-side
-(`lib/opencode.ts`), so it never has to be exposed publicly and needs no CORS setup.
+The browser only talks to the Next.js API routes. The model is reached server-side
+(`lib/openai.ts`), so the API key never reaches the browser.
 
 ## Development
 
 ```sh
 pnpm install
-pnpm dev        # runs `opencode serve --port 4096` and `next dev` together
+pnpm dev        # runs `next dev`
 ```
 
 ## Production
 
 ```sh
 pnpm build
-pnpm opencode   # keep this running (e.g. under systemd / pm2)
 pnpm start
 ```
 
-Set `OPENCODE_URL` if OpenCode is not at `http://127.0.0.1:4096`.
+Set `GROQ_KEY` (and optionally `GROQ_MODEL`) in `.env`.
 
-This needs a long-running host (VPS or container). Serverless platforms can run the
-Next.js app but not OpenCode itself. OpenCode can run commands on its machine, so add
-authentication to the API routes before exposing this to other people.
+## Study recommendations
 
-## MCP server
-
-`mcp-server/` is a Python ([MCP Python SDK](https://py.sdk.modelcontextprotocol.io/)) package in the
-pnpm workspace. OpenCode starts it over stdio from `opencode.json` (as the `project` MCP server), so
-its tools are available to the chat agent. Add tools in `mcp-server/src/opencode_mcp/server.py`.
-
-The agent is scoped to recruiting by `recruiting-agent.md` (listed under `instructions` in
-`opencode.json`). Current date/time questions are also allowed and answered with the `current_time`
-tool. For anything else it calls the `off_topic_reply` tool and returns
-"I can only respond to recruiting questions."
-
-```
-Browser ──▶ Next.js ──▶ opencode serve ──stdio──▶ mcp-server (uv)
-```
-
-```sh
-pnpm mcp:test                    # pytest
-pnpm --filter opencode-mcp dev   # MCP Inspector
-curl localhost:4096/mcp          # {"project":{"status":"connected"}} while `pnpm dev` runs
-```
+When the user asks what to study (e.g. "what should I study?", "recommend a major"), the
+chat exposes a `recommend_study` function to the model. It matches the user's interest
+against `colleges.json` (departments and their credit requirements) via
+`lib/colleges.ts`. The model decides whether to call it, then turns the result into a
+natural-language recommendation.
