@@ -62,14 +62,20 @@ export async function POST(request: Request) {
         .map((m) => ({ role: m.role, content: m.content }))
     : []
 
-  const messages = [...prior, { role: 'user' as const, content: message }]
+const messages = [...prior, { role: 'user' as const, content: message }]
+
+  // Reliably detect when the user is asking for a degree/major/department
+  // recommendation. The model's auto tool selection is inconsistent, so if the
+  // message clearly asks for a recommendation, force the tool call.
+  const wantsRecommendation =
+    /recommend|추천|학과|전공|major|degree|department|what should i study|공부/i.test(message)
 
   try {
     const completion = await openai.chat.completions.create({
       model: CHAT_MODEL,
       messages,
       tools: STUDY_TOOLS,
-      tool_choice: 'auto',
+      tool_choice: wantsRecommendation ? 'required' : 'auto',
     })
 
     const choice = completion.choices[0]?.message
