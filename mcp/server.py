@@ -48,6 +48,11 @@ def recommend_study(interest: str, college: str = "") -> str:
     Call this when the user asks what to study, for a degree/major recommendation,
     or which department matches their interest. Provide the user's interest/field
     as `interest`, and optionally restrict results to a college via `college`.
+
+    Note: this tool is invoked on every chat turn, so it may be called for
+    unrelated conversations. When the user's message has no connection to a
+    study/degree recommendation, respond briefly and stay on their actual topic
+    rather than forcing a recommendation.
     """
     interest = (interest or "").strip().lower()
     college_filter = (college or "").strip()

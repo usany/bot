@@ -9,6 +9,10 @@ const MCP_SERVER_URL = process.env.MCP_SERVER_URL ?? 'http://127.0.0.1:3001/mcp'
  * separate process exposing the `recommend_study` tool over Streamable HTTP;
  * this client talks to it on the Next.js server so the tool never touches the
  * browser or the OpenAI function-calling path.
+ *
+ * Note: this is called on every chat turn, so it can receive conversations
+ * unrelated to recommendations. In that case the tool returns a brief reply
+ * that stays on the user's actual topic instead of forcing a recommendation.
  */
 export async function recommendStudy(input: {
   interest: string
