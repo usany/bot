@@ -7,4 +7,4 @@ export const openai = new OpenAI({
   apiKey: process.env.OPENROUTER_API_KEY,
 })
 
-export const CHAT_MODEL = process.env.OPENROUTER_MODEL ?? 'meta-llama/llama-3.3-70b-instruct:free'
+export const CHAT_MODEL = process.env.OPENROUTER_MODEL ?? 'nvidia/nemotron-3-super-120b-a12b:free'
