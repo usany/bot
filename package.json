@@ -4,7 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "next dev",
+    "dev": "concurrently -k -n mcp,next -c blue,green \"npm:dev:mcp\" \"npm:dev:next\"",
+    "dev:mcp": "uv run mcp/server.py",
+    "dev:next": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "oxlint"
