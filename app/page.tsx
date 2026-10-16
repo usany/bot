@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import './chat.css'
 
 interface Message {
@@ -139,7 +141,11 @@ export default function Page() {
             className={`message ${message.sender === 'user' ? 'user-message' : 'bot-message'}`}
           >
             <div className="message-bubble">
-              <p>{message.text}</p>
+              {message.sender === 'bot' ? (
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.text}</ReactMarkdown>
+              ) : (
+                <p>{message.text}</p>
+              )}
               <span className="timestamp" suppressHydrationWarning>
                 {message.timestamp.toLocaleTimeString([], {
                   hour: '2-digit',
