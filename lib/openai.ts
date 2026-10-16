@@ -7,4 +7,4 @@ export const openai = new OpenAI({
   apiKey: process.env.OPENROUTER_API_KEY,
 })
 
-export const CHAT_MODEL = process.env.OPENROUTER_MODEL ?? 'openai/gpt-4o-mini'
+export const CHAT_MODEL = process.env.OPENROUTER_MODEL ?? 'meta-llama/llama-3.3-70b-instruct:free'
