@@ -180,6 +180,7 @@ export default function Page() {
           className="message-input"
         />
         <button
+          type="button"
           onClick={handleSend}
           disabled={isLoading || !input.trim() || !isConnected}
           className="send-button"

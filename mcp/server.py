@@ -41,6 +41,87 @@ def _load_colleges() -> list[dict]:
     return entries
 
 
+UNRELATED_MARKERS = (
+    "search",
+    "find",
+    "look up",
+    "google",
+    "browse",
+    "scrape",
+    "crawl",
+    "fetch",
+    "download",
+    "open url",
+    "navigate",
+    "weather",
+    "news",
+    "price",
+    "stock",
+    "map",
+    "directions",
+    "translate",
+    "define",
+)
+
+
+@mcp.tool()
+def check_degree_query(message: str) -> str:
+    """Decide whether a user message is a valid degree-recommendation request.
+
+    Call this before `recommend_study` on every chat turn. It returns a result
+    that says whether the message is a degree/study-recommendation request or an
+    unrelated search command (web search, URL fetch, navigation, translate,
+    define, weather, news, etc.). Only call `recommend_study` when the result
+    says a recommendation is wanted.
+
+    Return is JSON: {"wantsRecommendation": bool, "reason": str}.
+    """
+    text = (message or "").strip().lower()
+
+    if not text:
+        return json.dumps({
+            "wantsRecommendation": False,
+            "reason": "empty message",
+        })
+
+    # Unrelated search/action commands take priority and are rejected outright.
+    for marker in UNRELATED_MARKERS:
+        if marker in text:
+            return json.dumps({
+                "wantsRecommendation": False,
+                "reason": f"unrelated command matched marker {marker!r}",
+            })
+
+    # Degree-recommendation intent signals.
+    degree_hints = (
+        "what should i study",
+        "what to study",
+        "recommend",
+        "which major",
+        "which degree",
+        "which department",
+        "what major",
+        "what degree",
+        "major in",
+        "study",
+        "course",
+        "career in",
+        "college",
+        "department",
+    )
+    for hint in degree_hints:
+        if hint in text:
+            return json.dumps({
+                "wantsRecommendation": True,
+                "reason": f"matched degree hint {hint!r}",
+            })
+
+    return json.dumps({
+        "wantsRecommendation": False,
+        "reason": "no degree-recommendation intent detected",
+    })
+
+
 @mcp.tool()
 def recommend_study(interest: str, college: str = "") -> str:
     """Recommend a degree (major/department) to study from the college catalogue.

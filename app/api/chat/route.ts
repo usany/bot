@@ -1,5 +1,5 @@
 import { openai, CHAT_MODEL } from '@/lib/openai'
-import { recommendStudy } from '@/lib/mcp'
+import { recommendStudy, checkDegreeQuery } from '@/lib/mcp'
 
 interface ChatMessage {
   role: 'user' | 'assistant' | 'system'
@@ -51,7 +51,11 @@ export async function POST(request: Request) {
     const raw = classification.choices[0]?.message?.content ?? ''
     const parsed = JSON.parse(raw)
     if (parsed.wantsRecommendation === true) {
-      context = await recommendStudy({ interest: message })
+      // Reject unrelated search commands before recommending a degree.
+      const gate = await checkDegreeQuery(message)
+      if (gate.wantsRecommendation) {
+        context = await recommendStudy({ interest: message })
+      }
     }
   } catch (err) {
     console.error('MCP recommendation failed:', err)
