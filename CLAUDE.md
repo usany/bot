@@ -7,3 +7,22 @@ This version has breaking changes — APIs, conventions, and file structure may 
 This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
 
 <!-- END:nextjs-agent-rules -->
+
+# Auto-commit
+
+Commit your changes with the `auto-commit` skill whenever you modify files. Use
+
+```bash
+.claude/skills/auto-commit/scripts/auto_commit.sh
+```
+
+to stage and commit what changed now, or run the watcher to commit on every
+change:
+
+```bash
+.claude/skills/auto-commit/scripts/watch_commit.sh
+```
+
+Respect `.gitignore` (never force-add `.env` or secrets), use a `wip:` message
+prefix, and prefer a work branch over `main` for auto-commits. See
+`.claude/skills/auto-commit/SKILL.md` for details.
