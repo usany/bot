@@ -1,6 +1,7 @@
 import 'server-only'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
+import { openai, CHAT_MODEL } from '@/lib/openai'
 
 const MCP_SERVER_URL = process.env.MCP_SERVER_URL ?? 'http://127.0.0.1:3001/mcp'
 
@@ -20,38 +21,35 @@ export interface DegreeQueryResult {
 }
 
 /**
- * Ask the MCP server whether a message is a degree-recommendation request or an
- * unrelated search command (web search, URL fetch, translate, etc.). Returns a
- * structured result; only call `recommendStudy` when wantsRecommendation is true.
+ * Classify whether a message is a degree-recommendation request using the LLM
+ * (Groq/OpenAI), not keyword matching. This makes it language-agnostic: the
+ * model understands intent regardless of the language the user writes in.
+ *
+ * Only call `recommendStudy` when `wantsRecommendation` is true.
  */
 export async function checkDegreeQuery(message: string): Promise<DegreeQueryResult> {
-  const client = new Client({
-    name: 'chat-assistant',
-    version: '1.0.0',
+  const completion = await openai.chat.completions.create({
+    model: CHAT_MODEL,
+    messages: [
+      {
+        role: 'system',
+        content:
+          'You classify a single chat message. Answer with exactly one JSON object: ' +
+          '{"wantsRecommendation": boolean, "reason": string}. ' +
+          'Set wantsRecommendation true only when the user is asking what to study, ' +
+          'for a degree/major/department recommendation, or which subject matches ' +
+          'their interest. Otherwise set it false. Work in any language the user wrote.',
+      },
+      { role: 'user', content: message },
+    ],
+    response_format: { type: 'json_object' },
   })
 
-  const transport = new StreamableHTTPClientTransport(new URL(MCP_SERVER_URL))
-
-  try {
-    await client.connect(transport)
-    const result = await client.callTool({
-      name: 'check_degree_query',
-      arguments: { message },
-    })
-
-    const content = result.content as Array<{ type: string; text?: string }>
-    const text = content
-      .filter((item) => item?.type === 'text' && typeof item.text === 'string')
-      .map((item) => item.text as string)
-      .join('\n')
-
-    const parsed = JSON.parse(text)
-    return {
-      wantsRecommendation: parsed.wantsRecommendation === true,
-      reason: String(parsed.reason ?? ''),
-    }
-  } finally {
-    await transport.close().catch(() => {})
+  const raw = completion.choices[0]?.message?.content ?? ''
+  const parsed = JSON.parse(raw)
+  return {
+    wantsRecommendation: parsed.wantsRecommendation === true,
+    reason: String(parsed.reason ?? ''),
   }
 }
 

@@ -23,6 +23,9 @@ conventional-commit prefix (`feat:`, `fix:`, `docs:`, `style:`, `refactor:`,
 `chore:`, `wip:`) matching the change, and prefer a work branch over `main`
 for auto-commits. See `.claude/skills/auto-commit/SKILL.md` for details.
 
+Commit directly and do **not** ask for permission or confirmation before
+committing.
+
 # Brand Colors
 
 Use the `brand-colors` skill whenever asked to change styling, colors, theming,

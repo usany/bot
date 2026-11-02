@@ -30,32 +30,13 @@ export async function POST(request: Request) {
         .map((m) => ({ role: m.role, content: m.content }))
     : []
 
-  // Let the model decide whether the user wants a degree/major recommendation,
-  // instead of matching keywords that inevitably miss cases.
+  // The LLM decides (in any language) whether the user wants a degree/major
+  // recommendation; only then do we call the MCP recommend_study tool.
   let context = ''
   try {
-    const classification = await openai.chat.completions.create({
-      model: CHAT_MODEL,
-      messages: [
-        {
-          role: 'system',
-          content:
-            'Answer with exactly one JSON object: {"wantsRecommendation": boolean}. ' +
-            'True only when the user is asking what to study, for a degree/major/department ' +
-            'recommendation, or which subject matches their interest.',
-        },
-        { role: 'user', content: message },
-      ],
-      response_format: { type: 'json_object' },
-    })
-    const raw = classification.choices[0]?.message?.content ?? ''
-    const parsed = JSON.parse(raw)
-    if (parsed.wantsRecommendation === true) {
-      // Reject unrelated search commands before recommending a degree.
-      const gate = await checkDegreeQuery(message)
-      if (gate.wantsRecommendation) {
-        context = await recommendStudy({ interest: message })
-      }
+    const gate = await checkDegreeQuery(message)
+    if (gate.wantsRecommendation) {
+      context = await recommendStudy({ interest: message })
     }
   } catch (err) {
     console.error('MCP recommendation failed:', err)
