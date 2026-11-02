@@ -26,3 +26,10 @@ change:
 Respect `.gitignore` (never force-add `.env` or secrets), use a `wip:` message
 prefix, and prefer a work branch over `main` for auto-commits. See
 `.claude/skills/auto-commit/SKILL.md` for details.
+
+# Brand Colors
+
+Use the `brand-colors` skill whenever asked to change styling, colors, theming,
+or branding. Read `.claude/skills/brand-colors/SKILL.md` and apply the official
+brand palette (Crimson, Blue, Gold, Cool Gray, Silver) with their exact HEX/RGB
+values.
