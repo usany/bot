@@ -55,7 +55,6 @@ export async function checkDegreeQuery(message: string): Promise<DegreeQueryResu
 
 export async function recommendStudy(input: {
   interest: string
-  college?: string
 }): Promise<string> {
   const client = new Client({
     name: 'chat-assistant',
@@ -70,7 +69,6 @@ export async function recommendStudy(input: {
       name: 'recommend_study',
       arguments: {
         interest: input.interest,
-        college: input.college ?? '',
       },
     })
 
