@@ -15,12 +15,13 @@ file change. Stage and commit directly with git — no scripts or watchers:
 
 ```bash
 git add -A
-git commit -m "wip: <short description>"
+git commit -m "<prefix>: <short description>"
 ```
 
-Respect `.gitignore` (never force-add `.env` or secrets), use a `wip:` message
-prefix, and prefer a work branch over `main` for auto-commits. See
-`.claude/skills/auto-commit/SKILL.md` for details.
+Respect `.gitignore` (never force-add `.env` or secrets), use an appropriate
+conventional-commit prefix (`feat:`, `fix:`, `docs:`, `style:`, `refactor:`,
+`chore:`, `wip:`) matching the change, and prefer a work branch over `main`
+for auto-commits. See `.claude/skills/auto-commit/SKILL.md` for details.
 
 # Brand Colors
 

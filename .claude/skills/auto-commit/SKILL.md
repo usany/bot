@@ -24,12 +24,29 @@ git add -A
 if git diff --cached --quiet; then
   echo "nothing to commit"
 else
-  git commit -m "wip: <short description of what changed>"
+  git commit -m "<prefix>: <short description of what changed>"
 fi
 ```
 
-Prefer a short `wip:` message prefix describing the change, e.g.
-`wip: add brand-colors skill mention to CLAUDE.md`.
+## Choosing a prefix
+
+Use a conventional-commit-style prefix that matches the change, and a short
+imperative description. Pick from:
+
+- `feat:` a new feature or capability.
+- `fix:` a bug fix.
+- `docs:` documentation-only changes (`CLAUDE.md`, skills, READMEs, comments).
+- `style:` formatting/whitespace with no logic change.
+- `refactor:` code restructuring with no behavior change.
+- `chore:` tooling, config, or housekeeping changes.
+- `wip:` unfinished/in-progress work that is not yet a coherent unit.
+
+Examples:
+
+- `docs: add brand-colors skill mention to CLAUDE.md`
+- `feat: add user authentication`
+- `fix: correct broken link in footer`
+- `chore: update dependencies`
 
 ## Recommended guardrails
 
