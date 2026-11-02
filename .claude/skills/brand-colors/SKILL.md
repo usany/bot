@@ -10,17 +10,17 @@ styling, theming, or branding work.
 
 ## Primary Colors
 
-### Kyung Hee Crimson (Main)
+### Crimson (Main)
 
 - **RGB:** R164 G15 B22
 - **HEX:** `#A40F16`
 
-### Kyung Hee Blue (PANTONE 295 C)
+### Blue (PANTONE 295 C)
 
 - **RGB:** R13 G50 B111
 - **HEX:** `#0D326F`
 
-### Kyung Hee Gold (PANTONE 872 C)
+### Gold (PANTONE 872 C)
 
 - **RGB:** R192 G163 B83
 - **HEX:** `#C0A353`
