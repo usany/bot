@@ -10,17 +10,12 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 # Auto-commit
 
-Commit your changes with the `auto-commit` skill whenever you modify files. Use
+Automatically commit your changes with the `auto-commit` skill after every
+file change. Stage and commit directly with git — no scripts or watchers:
 
 ```bash
-.claude/skills/auto-commit/scripts/auto_commit.sh
-```
-
-to stage and commit what changed now, or run the watcher to commit on every
-change:
-
-```bash
-.claude/skills/auto-commit/scripts/watch_commit.sh
+git add -A
+git commit -m "wip: <short description>"
 ```
 
 Respect `.gitignore` (never force-add `.env` or secrets), use a `wip:` message
