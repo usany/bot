@@ -2,6 +2,7 @@ import 'server-only'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { openai, CHAT_MODEL } from '@/lib/openai'
+import { degreeCatalogueText } from '@/lib/catalogue'
 
 const MCP_SERVER_URL = process.env.MCP_SERVER_URL ?? 'http://127.0.0.1:3001/mcp'
 
@@ -34,13 +35,19 @@ export interface DegreeQueryResult {
  *   (curriculum, admissions, what it studies). Call `getDegreeDetails`.
  */
 export async function checkDegreeQuery(message: string): Promise<DegreeQueryResult> {
+  const catalogue = degreeCatalogueText()
+
   const completion = await openai.chat.completions.create({
     model: CHAT_MODEL,
     messages: [
       {
         role: 'system',
         content:
-          'You classify a single chat message. Answer with exactly one JSON object: ' +
+          'You classify a single chat message about university study. ' +
+          'Here is the canonical catalogue of degrees ("degree — college"), ' +
+          'one per line; every line is a valid department you may name:\n' +
+          catalogue +
+          '\n\nAnswer with exactly one JSON object: ' +
           '{"wantsRecommendation": boolean, "wantsDetails": boolean, "degree": string, "reason": string}. ' +
           'Set wantsRecommendation true only when the user is asking what to study, ' +
           'for a degree/major/department recommendation, or which subject matches ' +
@@ -48,10 +55,14 @@ export async function checkDegreeQuery(message: string): Promise<DegreeQueryResu
           'about one specific degree/department (e.g. its curriculum, introduction, ' +
           'admissions requirements, or what it studies), typically naming a single ' +
           'department. The two are mutually exclusive; at most one may be true. ' +
-          'When wantsDetails is true, set degree to the exact department/degree name ' +
-          'the user named (preserve the original Korean/English spelling, e.g. ' +
-          '"수학과"), otherwise set degree to "". If neither applies, both are false ' +
-          'and degree is "". Work in any language the user wrote.',
+          'When wantsDetails is true, resolve the department the user named to its ' +
+          'exact canonical degree string from the catalogue above (the Korean name ' +
+          'before the " — "), translating synonyms and any language (e.g. "math ' +
+          'department", "mathematics", "수학" all resolve to "수학과"). ' +
+          'Set degree to that exact canonical string. Do NOT invent a department ' +
+          'not in the catalogue; if the named department is not present, set ' +
+          'wantsDetails false. Otherwise set degree to "". If neither intent ' +
+          'applies, both are false and degree is "". Work in any language the user wrote.',
       },
       { role: 'user', content: message },
     ],
