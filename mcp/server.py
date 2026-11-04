@@ -2,6 +2,8 @@
 # requires-python = ">=3.11"
 # dependencies = [
 #   "mcp[cli]",
+#   "httpx",
+#   "selectolax",
 # ]
 # ///
 
@@ -18,10 +20,10 @@ against the caller's interest.
 
 import json
 import re
-import ssl
-import urllib.request
-from html import unescape
 from pathlib import Path
+
+import httpx
+from selectolax.lexbor import LexborHTMLParser
 
 from mcp.server import MCPServer
 
@@ -157,37 +159,318 @@ def _find_degree(degree: str) -> dict | None:
     return None
 
 
-def _strip_html(raw: str) -> str:
-    """Very small HTML-to-text helper for extracting readable detail."""
-    text = re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", raw, flags=re.S | re.I)
-    text = re.sub(r"<[^>]+>", " ", text)
-    text = unescape(text)
-    text = re.sub(r"[ \t\r\n]+", " ", text).strip()
-    return text
+# Boilerplate elements removed before text extraction. These are site chrome
+# (navigation, footers, sidebars) that would otherwise drown out the actual
+# department content.
+_STRIP_SELECTOR = "script, style, noscript, nav, header, footer, aside, iframe, form"
+
+# Content regions, in priority order. The KHU department sites all wrap their
+# real page content in one of these containers, so preferring them keeps the
+# nav menus out of the extracted text. We try each in turn and use the first
+# that yields meaningful text.
+_CONTENT_SELECTORS = [
+    'article.sub_contents',          # che.khu.ac.kr and similar "view.do" pages
+    'div.sub-page__content',         # hot.khu.ac.kr "view.do" pages
+    'div.sub_contents_wrap',         # che.khu.ac.kr content wrapper
+    'div.main-gallery',              # gukmun-type top-level department sites
+    'div.main',                      # gukmun-type: main content wrapper
+    'main',                          # generic <main> fallback
+]
+
+# Headings whose following text is most informative to a user asking about a
+# department. We keep the full cleaned text too, but these let the LLM focus.
+_USEFUL_HEADINGS = (
+    "학과소개", "전공소개", "소개", "교육과정", "커리큘럼", "졸업요건",
+    "졸업", "교과목", "진로", "취업", "교수", "학과장", "인사말",
+    "about", "introduction", "curriculum", "overview",
+)
+
+
+def _node_text(node, max_len: int = 20000) -> str:
+    """Extract clean, whitespace-normalized text from a selectolax node."""
+    for junk in node.css(_STRIP_SELECTOR):
+        junk.decompose()
+    text = node.text(separator="\n", strip=True)
+    text = re.sub(r"[ \t\r\f\v]+", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    text = _drop_artifact_lines(text)
+    return text.strip()[:max_len]
+
+
+def _drop_artifact_lines(text: str) -> str:
+    """Remove lines that are clearly not prose (pasted CSS, URL blobs, etc.).
+
+    Some department pages have raw CSS rules (``.class:before{...}``) or
+    data-URI blobs pasted into their content editor as literal text. These
+    lines are symbol-heavy with little to no Korean/English prose, so we drop
+    them before returning.
+    """
+    out = []
+    for line in text.split("\n"):
+        s = line.strip()
+        if not s:
+            continue
+        letters = len(re.findall(r"[\uac00-\ud7a3a-zA-Z]", s))
+        # A line that is mostly punctuation/braces/CSS is not prose.
+        if letters == 0 and len(s) <= 3:
+            continue
+        # CSS rule lines: start with a selector or contain balanced braces.
+        if re.match(r"^[.#:]?[a-zA-Z_-][a-zA-Z0-9_-]*\s*\{", s) or (
+            "{" in s and "}" in s and letters < 10 and "data:image" in s
+        ):
+            continue
+        # Long data-URI / base64 blobs are never useful prose.
+        if "data:image" in s and letters == 0:
+            continue
+        out.append(s)
+    return "\n".join(out)
+
+
+def _prose_score(text: str) -> float:
+    """Score a text block by how much real prose (vs nav/list noise) it has.
+
+    Real department descriptions are long sentences of Korean/English prose;
+    navigation and sidebars are short fragments separated by line breaks. We
+    reward long runs and sentence-like text, and penalize many tiny lines.
+    """
+    lines = [ln.strip() for ln in text.split("\n") if ln.strip()]
+    if not lines:
+        return 0.0
+    total = len(text)
+    avg_len = total / len(lines)
+    # Count letters (Korean + Latin) as a proxy for prose density.
+    letters = len(re.findall(r"[\uac00-\ud7a3a-zA-Z]", text))
+    density = letters / max(total, 1)
+    # Reward longer average line length and higher letter density.
+    return avg_len * density * min(len(lines), 40)
+
+
+def _extract_page_text(html: str, max_chars: int = 6000) -> str | None:
+    """Parse a department homepage and return the meaningful text content.
+
+    Strategy:
+      1. Parse into a DOM (selectolax).
+      2. Look for known KHU content containers and use the richest one.
+      3. Fall back to scoring every block and picking the best prose block.
+      4. Return the cleaned text, truncated to a bounded length.
+    """
+    if not html:
+        return None
+    parser = LexborHTMLParser(html)
+
+    chosen = None
+    # Pass 1: prefer known content containers.
+    for selector in _CONTENT_SELECTORS:
+        nodes = parser.css(selector)
+        if not nodes:
+            continue
+        # Prefer the node with the highest prose score among matches.
+        best = max(nodes, key=lambda n: _prose_score(_node_text(n, max_len=10**9)))
+        text = _node_text(best)
+        if len(text) >= 40:  # meaningful amount of prose
+            chosen = text
+            break
+
+    # Pass 2: no known container matched — score all candidate blocks and keep
+    # the single best prose block (avoids grabbing a whole-page wrapper).
+    if chosen is None:
+        candidates = []
+        for n in parser.css("div, article, section, main"):
+            txt = _node_text(n, max_len=10**9)
+            if len(txt) < 40:
+                continue
+            candidates.append((_prose_score(txt), txt))
+        if candidates:
+            candidates.sort(key=lambda x: x[0], reverse=True)
+            chosen = candidates[0][1]
+
+    if chosen is None:
+        body = parser.body
+        if body is None:
+            return None
+        chosen = _node_text(body)
+
+    # If the cleaned text is still mostly navigation noise (very long), trim it
+    # to a manageable, informative slice.
+    return chosen[:max_chars]
+
+
+def _looks_like_intro(text: str | None) -> bool:
+    """Heuristic: does the extracted text read like a department introduction?
+
+    We detect *news/announcement* content (the main false positive) and treat
+    it as NOT an intro, forcing sub-page discovery. Real introductions describe
+    the department (its purpose, curriculum, career paths) and are free of
+    announcement markers like dates, "공지", "안내", "신청", "장학", etc.
+    """
+    if not text:
+        return False
+    head = text[:800]
+    # Announcement/notice markers — if present, this is not an intro page.
+    news_markers = (
+        "공지", "안내", "신청", "접수", "장학", "선발", "모집",
+        "더보기", "논문심사", "관련 근거", "학칙", "일정", "제출",
+        "notice", "announcement", "deadline", "apply", "recruit",
+    )
+    if any(m in head for m in news_markers):
+        return False
+    # Intro markers — presence strongly suggests a real department intro.
+    intro_markers = (
+        "학과소개", "전공소개", "인사말", "환영", "소개합니다",
+        "인사드립니다", "교육목적", "교육목표", "학과장", "진로",
+        "교과과정", "교육과정", "졸업요건", "introduction", "welcome",
+    )
+    return any(m in head for m in intro_markers)
+
+
+def _find_intro_link(html: str, base_url: str) -> str | None:
+    """Find the link to the department's intro (학과소개/전공소개/인사말) page.
+
+    Korean university sites put the department description on a dedicated
+    ``view.do?menuNo=...`` page, not the homepage. We scan anchors whose text
+    matches intro terms and return the first (absolute) URL that is not the
+    homepage itself.
+    """
+    parser = LexborHTMLParser(html)
+    base = httpx.URL(base_url)
+    # Ordered by specificity — prefer the exact intro pages, fall back to
+    # generic "소개". We skip the homepage URL to avoid bouncing back.
+    intro_terms = ("학과소개", "전공소개", "학과장 인사", "인사말", "소개")
+    for a in parser.css("a"):
+        label = (a.text(strip=True) or "").strip()
+        href = (a.attributes.get("href") or "").strip()
+        if not href or href.startswith(("#", "javascript", "mailto", "tel")):
+            continue
+        if not any(t in label for t in intro_terms):
+            continue
+        resolved = base.join(href)
+        # Skip the homepage / the page we are already on.
+        if resolved.path.rstrip("/") == base.path.rstrip("/") and (
+            not resolved.query
+        ):
+            continue
+        return str(resolved)
+    return None
+
+
+def _decode_html(content: bytes, charset_hint: str | None = None) -> str:
+    """Decode an HTML response with correct charset detection.
+
+    Korean university sites are often ``ks_c_5601-1987`` (a.k.a. CP949/EUC-KR)
+    while their HTTP headers omit the charset, so ``httpx`` defaults to UTF-8
+    and mojibake results. We sniff the ``<meta charset>`` tag from the raw
+    bytes and re-decode with the right codec.
+    """
+    codec = "utf-8"
+    if charset_hint:
+        codec = charset_hint
+    # Look for encoding declared in the HTML meta tag.
+    m = re.search(
+        rb"<meta[^>]+charset=[\"']?([a-zA-Z0-9_\-]+)", content[:4096], re.I
+    )
+    if m:
+        declared = m.group(1).decode("ascii", "ignore").lower()
+        if declared in ("ks_c_5601-1987", "ksc5601", "euc-kr", "cp949", "ms949"):
+            codec = "cp949"
+        elif declared in ("utf-8", "utf8"):
+            codec = "utf-8"
+        elif declared in ("iso-8859-1", "latin1", "latin-1"):
+            codec = "latin-1"
+        else:
+            codec = declared
+    try:
+        return content.decode(codec, errors="replace")
+    except LookupError:
+        return content.decode("utf-8", errors="replace")
+
+
+def _js_redirect_url(html: str, base_url: str) -> str | None:
+    """Extract a JS ``location.href`` redirect target, if present.
+
+    Some legacy pages (e.g. old Microsoft Word-saved HTML) redirect via
+    ``<script>location.href="..."</script>`` rather than HTTP 3xx, which
+    httpx cannot follow. Return the resolved absolute URL or None.
+    """
+    m = re.search(
+        r"location\.(?:href|replace)\s*=\s*[\"']([^\"']+)[\"']", html
+    )
+    if not m:
+        return None
+    target = m.group(1)
+    # If the target is already absolute, return it unchanged; otherwise
+    # resolve it against the base URL.
+    if re.match(r"^https?://", target, re.I):
+        return target
+    return str(httpx.URL(base_url).join(target))
 
 
 def _fetch_page(url: str, max_chars: int = 6000) -> str | None:
-    """Fetch a URL and return a bounded, readable text slice."""
-    req = urllib.request.Request(
-        url,
-        headers={
-            "User-Agent": "Mozilla/5.0 (compatible; colleges-bot/1.0)",
-            "Accept-Language": "ko,en;q=0.8",
-        },
-    )
-    # Some environments (e.g. Windows) lack the local CA bundle that Python's
-    # ssl defaults to, causing CERTIFICATE_VERIFY_FAILED for valid HTTPS sites.
-    # Relax to unverified for this local browsing tool; the caller treats any
-    # fetch as untrusted text anyway.
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
-    with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:
-        charset = resp.headers.get_content_charset() or "utf-8"
-        body = resp.read().decode(charset, errors="replace")
-    text = _strip_html(body)
-    # Drop blank-heavy boilerplate; keep a bounded, informative slice.
-    return text[:max_chars]
+    """Fetch a URL (following redirects) and return bounded, readable text.
+
+    Strategy:
+      1. Fetch the given URL, decode with proper charset detection, and
+         extract its main prose.
+      2. If the page is a JS redirect stub, follow the ``location.href``
+         target and re-fetch.
+      3. If the result does not look like a department introduction (the
+         homepage may be dominated by a news board), discover the
+         ``학과소개/전공소개`` sub-page and fetch that instead.
+
+    Uses httpx for proper redirect/gzip handling. A browser-like User-Agent
+    avoids the lightweight bot-blocking some Korean dept sites use.
+    """
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml",
+        "Accept-Language": "ko,en;q=0.8",
+    }
+    # verify=False mirrors the previous behaviour: some environments lack the
+    # local CA bundle and fail CERTIFICATE_VERIFY_FAILED for valid HTTPS sites.
+    # The fetched text is treated as untrusted input by the caller anyway.
+    with httpx.Client(
+        timeout=15.0, follow_redirects=True, verify=False, headers=headers
+    ) as client:
+        resp = client.get(url)
+        resp.raise_for_status()
+        charset_hint = None
+        if resp.headers.get("content-type"):
+            cm = re.search(
+                r"charset=([a-zA-Z0-9_\-]+)",
+                resp.headers["content-type"],
+                re.I,
+            )
+            if cm:
+                charset_hint = cm.group(1)
+        html = _decode_html(resp.content, charset_hint)
+
+        # Follow a JS redirect if the page is just a stub.
+        js_target = _js_redirect_url(html, str(resp.url))
+        if js_target and js_target != str(resp.url):
+            resp = client.get(js_target)
+            resp.raise_for_status()
+            html = _decode_html(resp.content, charset_hint)
+
+        text = _extract_page_text(html, max_chars=max_chars)
+
+        # If the homepage didn't give us an intro, follow the intro link.
+        if not _looks_like_intro(text):
+            intro_url = _find_intro_link(html, str(resp.url))
+            if intro_url and intro_url != str(resp.url):
+                try:
+                    intro_resp = client.get(intro_url)
+                    intro_resp.raise_for_status()
+                    intro_text = _extract_page_text(
+                        intro_resp.text, max_chars=max_chars
+                    )
+                    if intro_text:
+                        return intro_text
+                except Exception:  # noqa: BLE001 — homepage text is a fine fallback
+                    pass
+        return text
 
 
 def _fetch_degree_page(url: str) -> str | None:
