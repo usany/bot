@@ -17,15 +17,21 @@ const MCP_SERVER_URL = process.env.MCP_SERVER_URL ?? 'http://127.0.0.1:3001/mcp'
  */
 export interface DegreeQueryResult {
   wantsRecommendation: boolean
+  wantsDetails: boolean
+  degree: string
   reason: string
 }
 
 /**
- * Classify whether a message is a degree-recommendation request using the LLM
- * (Groq/OpenAI), not keyword matching. This makes it language-agnostic: the
- * model understands intent regardless of the language the user writes in.
+ * Classify a message using the LLM (Groq/OpenAI), not keyword matching.
+ * This makes it language-agnostic: the model understands intent regardless of
+ * the language the user writes in.
  *
- * Only call `recommendStudy` when `wantsRecommendation` is true.
+ * The result distinguishes two intents:
+ * - `wantsRecommendation` — the user asks what to study / which major matches
+ *   their interest. Call `recommendStudy`.
+ * - `wantsDetails` — the user asks for details about a specific degree
+ *   (curriculum, admissions, what it studies). Call `getDegreeDetails`.
  */
 export async function checkDegreeQuery(message: string): Promise<DegreeQueryResult> {
   const completion = await openai.chat.completions.create({
@@ -35,10 +41,17 @@ export async function checkDegreeQuery(message: string): Promise<DegreeQueryResu
         role: 'system',
         content:
           'You classify a single chat message. Answer with exactly one JSON object: ' +
-          '{"wantsRecommendation": boolean, "reason": string}. ' +
+          '{"wantsRecommendation": boolean, "wantsDetails": boolean, "degree": string, "reason": string}. ' +
           'Set wantsRecommendation true only when the user is asking what to study, ' +
           'for a degree/major/department recommendation, or which subject matches ' +
-          'their interest. Otherwise set it false. Work in any language the user wrote.',
+          'their interest. Set wantsDetails true only when the user asks for details ' +
+          'about one specific degree/department (e.g. its curriculum, introduction, ' +
+          'admissions requirements, or what it studies), typically naming a single ' +
+          'department. The two are mutually exclusive; at most one may be true. ' +
+          'When wantsDetails is true, set degree to the exact department/degree name ' +
+          'the user named (preserve the original Korean/English spelling, e.g. ' +
+          '"수학과"), otherwise set degree to "". If neither applies, both are false ' +
+          'and degree is "". Work in any language the user wrote.',
       },
       { role: 'user', content: message },
     ],
@@ -49,6 +62,8 @@ export async function checkDegreeQuery(message: string): Promise<DegreeQueryResu
   const parsed = JSON.parse(raw)
   return {
     wantsRecommendation: parsed.wantsRecommendation === true,
+    wantsDetails: parsed.wantsDetails === true,
+    degree: typeof parsed.degree === 'string' ? parsed.degree : '',
     reason: String(parsed.reason ?? ''),
   }
 }
@@ -70,6 +85,41 @@ export async function recommendStudy(input: {
       arguments: {
         interest: input.interest,
       },
+    })
+
+    const content = result.content as Array<{ type: string; text?: string }>
+    const text = content
+      .filter((item) => item?.type === 'text' && typeof item.text === 'string')
+      .map((item) => item.text as string)
+      .join('\n')
+
+    if (!text) {
+      throw new Error('MCP server returned no text result')
+    }
+    return text
+  } finally {
+    await transport.close().catch(() => {})
+  }
+}
+
+/**
+ * Fetch detailed info about a specific degree via the Python MCP server's
+ * `get_degree_details` tool, which scrapes the degree's official homepage from
+ * the URL recorded in colleges.json. Returns the raw catalogue/homepage text.
+ */
+export async function getDegreeDetails(degree: string): Promise<string> {
+  const client = new Client({
+    name: 'chat-assistant',
+    version: '1.0.0',
+  })
+
+  const transport = new StreamableHTTPClientTransport(new URL(MCP_SERVER_URL))
+
+  try {
+    await client.connect(transport)
+    const result = await client.callTool({
+      name: 'get_degree_details',
+      arguments: { degree },
     })
 
     const content = result.content as Array<{ type: string; text?: string }>

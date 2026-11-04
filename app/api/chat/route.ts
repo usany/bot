@@ -1,5 +1,5 @@
 import { openai, CHAT_MODEL } from '@/lib/openai'
-import { recommendStudy, checkDegreeQuery } from '@/lib/mcp'
+import { recommendStudy, getDegreeDetails, checkDegreeQuery } from '@/lib/mcp'
 
 interface ChatMessage {
   role: 'user' | 'assistant' | 'system'
@@ -31,20 +31,28 @@ export async function POST(request: Request) {
     : []
 
   // The LLM decides (in any language) whether the user wants a degree/major
-  // recommendation; only then do we call the MCP recommend_study tool.
+  // recommendation or details about a specific degree; only then do we call
+  // the corresponding MCP tool.
   let context = ''
+  let systemContextKind: 'recommendation' | 'details' | null = null
   try {
     const gate = await checkDegreeQuery(message)
     if (gate.wantsRecommendation) {
       context = await recommendStudy({ interest: message })
+      systemContextKind = 'recommendation'
+    } else if (gate.wantsDetails) {
+      context = await getDegreeDetails(gate.degree || message)
+      systemContextKind = 'details'
     }
   } catch (err) {
-    console.error('MCP recommendation failed:', err)
+    console.error('MCP tool call failed:', err)
   }
 
-  const systemPrompt = context
-    ? `You are a helpful assistant. The user asked what to study. Use the recommendations below (retrieved from the college catalogue) to answer in natural language, in the same language the user wrote. Do not invent degrees or credit numbers beyond what is listed.\n\n${context}`
-    : undefined
+  const systemPrompt = !context
+    ? undefined
+    : systemContextKind === 'details'
+      ? `You are a helpful assistant. The user asked about a specific degree/department. Use the details below (retrieved from the department's official homepage) to answer in natural language, in the same language the user wrote. Do not invent facts, requirements, or numbers beyond what is provided.\n\n${context}`
+      : `You are a helpful assistant. The user asked what to study. Use the recommendations below (retrieved from the college catalogue) to answer in natural language, in the same language the user wrote. Do not invent degrees or credit numbers beyond what is listed.\n\n${context}`
 
   const messages: ChatMessage[] = [
     ...(systemPrompt ? [{ role: 'system' as const, content: systemPrompt }] : []),
