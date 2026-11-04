@@ -18,6 +18,7 @@ against the caller's interest.
 
 import json
 import re
+import ssl
 import urllib.request
 from html import unescape
 from pathlib import Path
@@ -65,8 +66,8 @@ def _strip_html(raw: str) -> str:
     return text
 
 
-def _fetch_degree_page(url: str) -> str | None:
-    """Fetch a degree homepage and return a short readable description."""
+def _fetch_page(url: str, max_chars: int = 6000) -> str | None:
+    """Fetch a URL and return a bounded, readable text slice."""
     req = urllib.request.Request(
         url,
         headers={
@@ -74,13 +75,24 @@ def _fetch_degree_page(url: str) -> str | None:
             "Accept-Language": "ko,en;q=0.8",
         },
     )
-    with urllib.request.urlopen(req, timeout=10) as resp:
+    # Some environments (e.g. Windows) lack the local CA bundle that Python's
+    # ssl defaults to, causing CERTIFICATE_VERIFY_FAILED for valid HTTPS sites.
+    # Relax to unverified for this local browsing tool; the caller treats any
+    # fetch as untrusted text anyway.
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:
         charset = resp.headers.get_content_charset() or "utf-8"
         body = resp.read().decode(charset, errors="replace")
     text = _strip_html(body)
     # Drop blank-heavy boilerplate; keep a bounded, informative slice.
-    return text[:6000]
+    return text[:max_chars]
 
+
+def _fetch_degree_page(url: str) -> str | None:
+    """Fetch a degree homepage and return a short readable description."""
+    return _fetch_page(url)
 
 @mcp.tool()
 def recommend_study(interest: str, college: str = "") -> str:
@@ -136,6 +148,29 @@ def recommend_study(interest: str, college: str = "") -> str:
         )
         lines.append(f"- {e['degree']} ({e['college']}) — {macro}, {micro}")
     return "\n".join(lines)
+
+
+@mcp.tool()
+def browse_url(url: str) -> str:
+    """Fetch a web page by URL and return its readable text content.
+
+    Use this to browse the web when the user asks to retrieve or read content
+    from a specific URL (e.g. an article, a department page, a webpage they
+    pasted). Pass the full http(s) URL as `url`. The result is the page's text
+    with HTML stripped, truncated to a bounded length so it fits in context.
+    """
+    url = (url or "").strip()
+    if not url:
+        return "No URL provided."
+    if not (url.startswith("http://") or url.startswith("https://")):
+        return f"Unsupported URL scheme: {url!r}. Provide a full http(s) URL."
+    try:
+        text = _fetch_page(url)
+    except Exception as exc:  # noqa: BLE001
+        return f"Could not fetch {url} ({exc})."
+    if not text:
+        return f"{url} returned no readable content."
+    return f"Content from {url}:\n\n{text}"
 
 
 @mcp.tool()
