@@ -29,6 +29,68 @@ mcp = MCPServer("colleges")
 
 COLLEGES_PATH = Path(__file__).resolve().parent.parent / "colleges.json"
 
+# English (and common) aliases for each degree so queries like "math",
+# "mathematics", "physics", or "English literature" resolve to the
+# corresponding Korean department. Keys are normalized to lowercase.
+_DEGREE_ALIASES: dict[str, list[str]] = {
+    "국어국문학과": ["korean language and literature", "korean literature", "korean"],
+    "영어영문학과": ["english language and literature", "english literature", "english"],
+    "응용영어통번역학과": ["applied english interpretation and translation", "translation", "interpreting"],
+    "사학과": ["history"],
+    "철학과": ["philosophy"],
+    "정치외교학과": ["political science", "international relations", "politics"],
+    "행정학과": ["public administration", "administration"],
+    "사회학과": ["sociology"],
+    "미디어학과": ["media", "media studies", "communication"],
+    "경제학과": ["economics"],
+    "무역학과": ["trade", "international trade"],
+    "국제통상․금융투자학부": ["international commerce", "finance", "investment"],
+    "경영학과": ["business administration", "business", "management"],
+    "회계·세무학과": ["accounting", "taxation", "accounting and tax"],
+    "빅데이터응용학과": ["big data", "data science", "big data application"],
+    "Hospitality경영학과": ["hospitality management", "hospitality"],
+    "조리&푸드디자인학과": ["culinary", "food design", "culinary arts"],
+    "관광학과": ["tourism", "tourism management"],
+    "문화엔터테인먼트학과": ["culture and entertainment", "entertainment"],
+    "수학과": ["mathematics", "math", "maths"],
+    "물리학과": ["physics"],
+    "화학과": ["chemistry"],
+    "생물학과": ["biology", "biological sciences"],
+    "지리학과": ["geography"],
+    "정보디스플레이학과": ["information display", "display"],
+    "소재·발광소자학": ["materials", "light emitting devices"],
+    "구동소자·시스템학": ["device systems", "driving devices"],
+    "아동가족학과": ["child and family studies", "child development"],
+    "주거환경학과": ["housing and interior", "residential environment"],
+    "의상학과": ["fashion", "clothing and textiles", "fashion design"],
+    "식품영양학과": ["food and nutrition", "nutrition"],
+}
+
+
+# English aliases for colleges so queries like "college of science" or
+# "liberal arts" resolve to 이과대학 / 문과대학 respectively.
+_COLLEGE_ALIASES: dict[str, list[str]] = {
+    "문과대학": ["liberal arts", "humanities", "college of liberal arts"],
+    "정경대학": ["college of politics and economics", "politics and economics", "social sciences"],
+    "경영대학": ["business school", "college of business", "college of business administration"],
+    "호텔관광대학": ["hotel and tourism", "tourism college", "hospitality"],
+    "이과대학": ["college of science", "college of natural sciences", "science"],
+    "생활과학대학": ["college of human ecology", "human ecology", "living science"],
+}
+
+
+def _norm(s: str) -> str:
+    """Lowercase, strip, and collapse whitespace for matching."""
+    return re.sub(r"\s+", " ", (s or "").lower().strip())
+
+
+def _aliases_for(entry: dict) -> list[str]:
+    """All searchable aliases (English + Korean) for a catalogue entry."""
+    names = [entry["degree"], entry["college"]]
+    names += _DEGREE_ALIASES.get(entry["degree"], [])
+    names += _COLLEGE_ALIASES.get(entry["college"], [])
+    return names
+
 
 def _load_colleges() -> list[dict]:
     data = json.loads(COLLEGES_PATH.read_text(encoding="utf-8"))
@@ -47,13 +109,51 @@ def _load_colleges() -> list[dict]:
 
 
 def _find_degree(degree: str) -> dict | None:
-    """Return the catalogue entry whose degree name matches `degree`."""
-    target = (degree or "").strip()
-    for e in _load_colleges():
-        if e["degree"] == target:
+    """Return the catalogue entry whose name or alias matches `degree`.
+
+    Matching is case-insensitive and works against both the Korean degree name
+    and its English aliases, so queries like "math department" or "physics"
+    resolve to 수학과 / 물리학과 respectively.
+    """
+    target = _norm(degree)
+    if not target:
+        return None
+
+    entries = _load_colleges()
+    # Strip trailing words like "department", "major", "과" is handled below.
+    for suffix in (
+        " department", " dept", " major", " department of",
+        "학과", "학부", "전공",
+    ):
+        if target.endswith(suffix):
+            target = target[: -len(suffix)].strip()
+
+    # 1) Exact match on Korean name or alias.
+    for e in entries:
+        if _norm(e["degree"]) == target:
             return e
-        if target and target in e["degree"]:
+        if target in [_norm(a) for a in _DEGREE_ALIASES.get(e["degree"], [])]:
             return e
+
+    # 2) Substring match on Korean name.
+    for e in entries:
+        if target in _norm(e["degree"]):
+            return e
+
+    # 3) Substring match on aliases (e.g. "math" inside "mathematics").
+    for e in entries:
+        for alias in _DEGREE_ALIASES.get(e["degree"], []):
+            if target in alias or alias in target:
+                return e
+
+    # 4) Token overlap (e.g. "applied math" vs "mathematics").
+    targets = set(target.split())
+    for e in entries:
+        for alias in _DEGREE_ALIASES.get(e["degree"], []):
+            atoks = set(alias.split())
+            if targets & atoks:
+                return e
+
     return None
 
 
@@ -102,29 +202,36 @@ def recommend_study(interest: str, college: str = "") -> str:
     or which department matches their interest. Provide the user's interest/field
     as `interest`, and optionally restrict results to a college via `college`.
 
+    `interest` and `college` may be in ANY language (e.g. Korean, English).
+    Translate the user's intent into the most specific term you can (e.g.
+    "mathematics" or "수학" for the math major, "physics" or "물리" for physics).
+    The tool matches against Korean names and their English aliases.
+
     Note: this tool is invoked on every chat turn, so it may be called for
     unrelated conversations. When the user's message has no connection to a
     study/degree recommendation, respond briefly and stay on their actual topic
     rather than forcing a recommendation.
     """
-    interest = (interest or "").strip().lower()
-    college_filter = (college or "").strip()
+    interest = _norm(interest)
+    college_filter = _norm(college)
 
     entries = _load_colleges()
     if college_filter:
-        entries = [e for e in entries if college_filter in e["college"]]
+        def college_matches(e: dict) -> bool:
+            names = [e["college"]] + _COLLEGE_ALIASES.get(e["college"], [])
+            return any(college_filter in _norm(n) or _norm(n) in college_filter for n in names)
+        entries = [e for e in entries if college_matches(e)]
 
-    tokens = [
-        t
-        for t in interest.split()
-        if t
-    ]
+    tokens = [t for t in interest.split() if t]
 
     def score(e: dict) -> int:
-        hay = f"{e['degree']} {e['college']}".lower()
-        s = sum(1 for t in tokens if t in hay)
-        if interest and interest in hay:
-            s += 2
+        names = [f"{e['degree']} {e['college']}"] + _aliases_for(e)
+        s = 0
+        for name in names:
+            n = _norm(name)
+            s += sum(1 for t in tokens if t in n)
+            if interest and interest in n:
+                s += 2
         return s
 
     ranked = sorted(entries, key=score, reverse=True)
@@ -179,9 +286,11 @@ def get_degree_details(degree: str) -> str:
 
     Call this when the user asks for details about a particular degree, such as
     its curriculum, introduction, admissions requirements, or what it studies.
-    Pass the degree name (e.g. "국어국문학과", "경영학과") as `degree`. The tool
-    looks up the degree's official homepage URL from the catalogue and fetches
-    a readable summary of it.
+
+    Pass the degree name as `degree`. It may be in ANY language: use the Korean
+    name (e.g. "국어국문학과", "수학과") or an English name (e.g. "mathematics",
+    "math department", "physics"). The tool resolves English names to the
+    matching Korean department and fetches its official homepage for details.
     """
     entry = _find_degree(degree)
     if entry is None:
