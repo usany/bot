@@ -11,7 +11,7 @@ Run it (no venv, no requirements.txt — `uv` resolves the inline deps above):
 
     uv run mcp/server.py
 
-It serves a Streamable HTTP endpoint at http://127.0.0.1:3001/mcp exposing a
+It serves a Streamable HTTP endpoint at http://127.0.0.1:3100/mcp exposing a
 single tool, `recommend_study`, which reads ``colleges.json`` and ranks majors
 against the caller's interest.
 """
@@ -317,4 +317,4 @@ def get_degree_details(degree: str) -> str:
 
 
 if __name__ == "__main__":
-    mcp.run(transport="streamable-http", host="127.0.0.1", port=3001)
+    mcp.run(transport="streamable-http", host="127.0.0.1", port=3100)

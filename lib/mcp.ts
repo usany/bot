@@ -4,7 +4,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { openai, CHAT_MODEL } from '@/lib/openai'
 import { degreeCatalogueText } from '@/lib/catalogue'
 
-const MCP_SERVER_URL = process.env.MCP_SERVER_URL ?? 'http://127.0.0.1:3001/mcp'
+const MCP_SERVER_URL = process.env.MCP_SERVER_URL ?? 'http://127.0.0.1:3100/mcp'
 
 /**
  * Recommend degrees via the Python MCP server (mcp/server.py). The server is a
