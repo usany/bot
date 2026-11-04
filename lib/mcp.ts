@@ -19,6 +19,7 @@ const MCP_SERVER_URL = process.env.MCP_SERVER_URL ?? 'http://127.0.0.1:3100/mcp'
 export interface DegreeQueryResult {
   wantsRecommendation: boolean
   wantsDetails: boolean
+  wantsCurriculum: boolean
   degree: string
   reason: string
 }
@@ -28,11 +29,14 @@ export interface DegreeQueryResult {
  * This makes it language-agnostic: the model understands intent regardless of
  * the language the user writes in.
  *
- * The result distinguishes two intents:
+ * The result distinguishes three intents:
  * - `wantsRecommendation` — the user asks what to study / which major matches
  *   their interest. Call `recommendStudy`.
  * - `wantsDetails` — the user asks for details about a specific degree
- *   (curriculum, admissions, what it studies). Call `getDegreeDetails`.
+ *   (its introduction, admissions, what it studies). Call `getDegreeDetails`.
+ * - `wantsCurriculum` — the user asks specifically about a degree's
+ *   curriculum/courses/requirements (교과과정, 교육과정, 이수체계, 졸업요건).
+ *   Call `getDegreeCurriculum`.
  */
 export async function checkDegreeQuery(message: string): Promise<DegreeQueryResult> {
   const catalogue = degreeCatalogueText()
@@ -48,21 +52,28 @@ export async function checkDegreeQuery(message: string): Promise<DegreeQueryResu
           'one per line; every line is a valid department you may name:\n' +
           catalogue +
           '\n\nAnswer with exactly one JSON object: ' +
-          '{"wantsRecommendation": boolean, "wantsDetails": boolean, "degree": string, "reason": string}. ' +
+          '{"wantsRecommendation": boolean, "wantsDetails": boolean, "wantsCurriculum": boolean, "degree": string, "reason": string}. ' +
           'Set wantsRecommendation true only when the user is asking what to study, ' +
           'for a degree/major/department recommendation, or which subject matches ' +
-          'their interest. Set wantsDetails true only when the user asks for details ' +
-          'about one specific degree/department (e.g. its curriculum, introduction, ' +
-          'admissions requirements, or what it studies), typically naming a single ' +
-          'department. The two are mutually exclusive; at most one may be true. ' +
-          'When wantsDetails is true, resolve the department the user named to its ' +
+          'their interest. Set wantsDetails true only when the user asks for general ' +
+          'details or an introduction about one specific degree/department (e.g. its ' +
+          'introduction, what it studies, admissions), naming a single department. ' +
+          'Set wantsCurriculum true only when the user asks specifically about a ' +
+          'degree\'s curriculum, courses, 교과과정, 교육과정, 이수체계, 졸업요건, ' +
+          'course list, or required subjects/credits (e.g. "what courses does the math ' +
+          'department have", "수학과 교육과정"). Among wantsDetails and ' +
+          'wantsCurriculum, at most one may be true; if the user asks about curriculum, ' +
+          'prefer wantsCurriculum over wantsDetails. The recommendation intent ' +
+          '(wantsRecommendation) is separate and mutually exclusive with the other two. ' +
+          'When wantsDetails or wantsCurriculum is true, resolve the department the user ' +
+          'named to its ' +
           'exact canonical degree string from the catalogue above (the Korean name ' +
           'before the " — "), translating synonyms and any language (e.g. "math ' +
           'department", "mathematics", "수학" all resolve to "수학과"). ' +
           'Set degree to that exact canonical string. Do NOT invent a department ' +
-          'not in the catalogue; if the named department is not present, set ' +
-          'wantsDetails false. Otherwise set degree to "". If neither intent ' +
-          'applies, both are false and degree is "". Work in any language the user wrote.',
+          'not in the catalogue; if the named department is not present, set all three ' +
+          'booleans false. Otherwise set degree to "". If no intent applies, all are ' +
+          'false and degree is "". Work in any language the user wrote.',
       },
       { role: 'user', content: message },
     ],
@@ -74,6 +85,7 @@ export async function checkDegreeQuery(message: string): Promise<DegreeQueryResu
   return {
     wantsRecommendation: parsed.wantsRecommendation === true,
     wantsDetails: parsed.wantsDetails === true,
+    wantsCurriculum: parsed.wantsCurriculum === true,
     degree: typeof parsed.degree === 'string' ? parsed.degree : '',
     reason: String(parsed.reason ?? ''),
   }
@@ -96,6 +108,42 @@ export async function recommendStudy(input: {
       arguments: {
         interest: input.interest,
       },
+    })
+
+    const content = result.content as Array<{ type: string; text?: string }>
+    const text = content
+      .filter((item) => item?.type === 'text' && typeof item.text === 'string')
+      .map((item) => item.text as string)
+      .join('\n')
+
+    if (!text) {
+      throw new Error('MCP server returned no text result')
+    }
+    return text
+  } finally {
+    await transport.close().catch(() => {})
+  }
+}
+
+/**
+ * Fetch a degree's curriculum (courses, roadmap, requirements) via the Python
+ * MCP server's `get_degree_curriculum` tool. Unlike `getDegreeDetails` (which
+ * returns the department introduction), this discovers and fetches the
+ * 교육과정/교과과정/이수체계/졸업요건 sub-pages.
+ */
+export async function getDegreeCurriculum(degree: string): Promise<string> {
+  const client = new Client({
+    name: 'chat-assistant',
+    version: '1.0.0',
+  })
+
+  const transport = new StreamableHTTPClientTransport(new URL(MCP_SERVER_URL))
+
+  try {
+    await client.connect(transport)
+    const result = await client.callTool({
+      name: 'get_degree_curriculum',
+      arguments: { degree },
     })
 
     const content = result.content as Array<{ type: string; text?: string }>

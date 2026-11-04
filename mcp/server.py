@@ -353,6 +353,31 @@ def _find_intro_link(html: str, base_url: str) -> str | None:
     return None
 
 
+def _find_section_links(html: str, base_url: str, terms) -> list[str]:
+    """Find sub-page links whose anchor text matches any of `terms`.
+
+    Used to locate curriculum/requirements/roadmap pages, which live on
+    dedicated ``view.do?menuNo=...`` / ``list.do?menuNo=...`` sub-pages rather
+    than the homepage. Returns absolute URLs, de-duplicated, in DOM order.
+    """
+    parser = LexborHTMLParser(html)
+    base = httpx.URL(base_url)
+    found: list[str] = []
+    seen: set[str] = set()
+    for a in parser.css("a"):
+        label = (a.text(strip=True) or "").strip()
+        href = (a.attributes.get("href") or "").strip()
+        if not href or href.startswith(("#", "javascript", "mailto", "tel")):
+            continue
+        if not any(t in label for t in terms):
+            continue
+        resolved = str(base.join(href))
+        if resolved not in seen:
+            seen.add(resolved)
+            found.append(resolved)
+    return found
+
+
 def _decode_html(content: bytes, charset_hint: str | None = None) -> str:
     """Decode an HTML response with correct charset detection.
 
@@ -597,6 +622,86 @@ def get_degree_details(degree: str) -> str:
         return f"{header}\n\nThe page returned no readable content. See {url}."
 
     return f"{header}\n\n{text}"
+
+
+# Anchor-label terms that point at the pages a student asking about a
+# department's *curriculum* would want (course lists, roadmap, requirements).
+_CURRICULUM_TERMS = (
+    "교육과정", "교과과정", "교과목", "이수체계", "커리큘럼", "교과",
+    "졸업요건", "졸업이수", "이수학점", "시행세칙", "curriculum", "courses",
+)
+
+
+def _fetch_curriculum(degree: str) -> str:
+    """Fetch the curriculum-related pages for a degree and return their text.
+
+    Strategy: resolve the degree, fetch its homepage, discover the
+    ``교육과정/교과과정/이수체계/졸업요건`` links, then fetch each (up to a few)
+    and concatenate the extracted prose. Falls back to the homepage intro if no
+    curriculum links are found.
+    """
+    entry = _find_degree(degree)
+    if entry is None:
+        return f"No degree matched {degree!r}. Try a name like 수학과 or 국어국문학과."
+
+    url = entry["url"]
+    header = f"{entry['degree']} ({entry['college']})\nHomepage: {url}"
+    if not url:
+        return f"{header}\n(No homepage URL is available for this degree.)"
+
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+        ),
+        "Accept-Language": "ko,en;q=0.8",
+    }
+    with httpx.Client(
+        timeout=15.0, follow_redirects=True, verify=False, headers=headers
+    ) as client:
+        try:
+            home = client.get(url)
+            home.raise_for_status()
+        except Exception as exc:  # noqa: BLE001
+            return f"{header}\n\nCould not fetch the homepage ({exc})."
+
+        home_html = _decode_html(home.content)
+        links = _find_section_links(home_html, str(home.url), _CURRICULUM_TERMS)
+
+        # Fetch each curriculum link, collecting non-empty prose.
+        parts: list[str] = []
+        for link in links[:5]:
+            try:
+                r = client.get(link)
+                r.raise_for_status()
+                text = _extract_page_text(_decode_html(r.content), max_chars=4000)
+                if text:
+                    parts.append(text)
+            except Exception:  # noqa: BLE001
+                continue
+
+    if not parts:
+        # No curriculum sub-pages discovered — fall back to the homepage intro.
+        return get_degree_details(degree)
+
+    body = "\n\n---\n\n".join(parts)
+    return f"{header}\n\n[Curriculum / courses]\n\n{body}"
+
+
+@mcp.tool()
+def get_degree_curriculum(degree: str) -> str:
+    """Fetch a degree's curriculum (courses, roadmap, graduation requirements).
+
+    Call this when the user asks specifically about a department's curriculum,
+    courses, 교과과정, 교육과정, 이수체계, or 졸업요건 (what subjects they study
+    year-by-year, required credits, course lists). This differs from
+    `get_degree_details`, which returns the department's general introduction.
+
+    Pass the degree name as `degree`, in any language (e.g. "수학과", "math",
+    "mathematics", "국어국문학과"). The tool finds the department's
+    curriculum/education sub-pages and returns their content.
+    """
+    return _fetch_curriculum(degree)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
 import { openai, CHAT_MODEL } from '@/lib/openai'
-import { recommendStudy, getDegreeDetails, checkDegreeQuery } from '@/lib/mcp'
+import { recommendStudy, getDegreeDetails, getDegreeCurriculum, checkDegreeQuery } from '@/lib/mcp'
 
 interface ChatMessage {
   role: 'user' | 'assistant' | 'system'
@@ -34,12 +34,15 @@ export async function POST(request: Request) {
   // recommendation or details about a specific degree; only then do we call
   // the corresponding MCP tool.
   let context = ''
-  let systemContextKind: 'recommendation' | 'details' | null = null
+  let systemContextKind: 'recommendation' | 'details' | 'curriculum' | null = null
   try {
     const gate = await checkDegreeQuery(message)
     if (gate.wantsRecommendation) {
       context = await recommendStudy({ interest: message })
       systemContextKind = 'recommendation'
+    } else if (gate.wantsCurriculum) {
+      context = await getDegreeCurriculum(gate.degree || message)
+      systemContextKind = 'curriculum'
     } else if (gate.wantsDetails) {
       context = await getDegreeDetails(gate.degree || message)
       systemContextKind = 'details'
@@ -50,9 +53,11 @@ export async function POST(request: Request) {
 
   const systemPrompt = !context
     ? undefined
-    : systemContextKind === 'details'
-      ? `You are a helpful assistant. The user asked about a specific degree/department. Use the details below (retrieved from the department's official homepage) to answer in natural language, in the same language the user wrote. Do not invent facts, requirements, or numbers beyond what is provided.\n\n${context}`
-      : `You are a helpful assistant. The user asked what to study. Use the recommendations below (retrieved from the college catalogue) to answer in natural language, in the same language the user wrote. Do not invent degrees or credit numbers beyond what is listed.\n\n${context}`
+    : systemContextKind === 'curriculum'
+      ? `You are a helpful assistant. The user asked about a specific degree's curriculum or courses. Use the curriculum/course information below (retrieved from the department's official website) to answer in natural language, in the same language the user wrote. Do not invent courses, credits, or requirements beyond what is provided.\n\n${context}`
+      : systemContextKind === 'details'
+        ? `You are a helpful assistant. The user asked about a specific degree/department. Use the details below (retrieved from the department's official homepage) to answer in natural language, in the same language the user wrote. Do not invent facts, requirements, or numbers beyond what is provided.\n\n${context}`
+        : `You are a helpful assistant. The user asked what to study. Use the recommendations below (retrieved from the college catalogue) to answer in natural language, in the same language the user wrote. Do not invent degrees or credit numbers beyond what is listed.\n\n${context}`
 
   const messages: ChatMessage[] = [
     ...(systemPrompt ? [{ role: 'system' as const, content: systemPrompt }] : []),
