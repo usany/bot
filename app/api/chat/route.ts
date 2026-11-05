@@ -66,6 +66,15 @@ export async function POST(request: Request) {
 
   const messages: ChatMessage[] = [
     ...(systemPrompt ? [{ role: 'system' as const, content: systemPrompt }] : []),
+    // Always-instruct the model to reply in whatever language the user wrote,
+    // even when no MCP context was fetched above.
+    {
+      role: 'system',
+      content:
+        'Always respond in the same language the user wrote their message in. ' +
+        'If the user writes in Korean, answer in Korean; if in English, answer in ' +
+        'English; mirror any other language exactly.',
+    },
     ...prior,
     { role: 'user' as const, content: message },
   ]
