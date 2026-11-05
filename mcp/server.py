@@ -704,5 +704,26 @@ def get_degree_curriculum(degree: str) -> str:
     return _fetch_curriculum(degree)
 
 
+@mcp.tool()
+def get_all_department_details() -> str:
+    """Return a compact directory of every department in the catalogue
+    (name, college, and homepage URL from colleges.json).
+
+    Call this when the user asks in general for department details, without
+    naming a specific department (e.g. "could you provide department details
+    from the site", "부서 정보 알려줘", "what departments do you have").
+
+    The result is deliberately compact (no full page intros) so it fits in the
+    chat context; the user can then ask about a specific department to fetch
+    its full introduction via `get_degree_details`.
+    """
+    entries = _load_colleges()
+    lines = [f"Departments ({len(entries)}):"]
+    for e in entries:
+        url = e["url"] or "(no homepage)"
+        lines.append(f"- {e['degree']} — {e['college']} — {url}")
+    return "\n".join(lines)
+
+
 if __name__ == "__main__":
     mcp.run(transport="streamable-http", host="127.0.0.1", port=3100)

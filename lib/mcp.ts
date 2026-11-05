@@ -20,6 +20,7 @@ export interface DegreeQueryResult {
   wantsRecommendation: boolean
   wantsDetails: boolean
   wantsCurriculum: boolean
+  wantsAllDetails: boolean
   degree: string
   reason: string
 }
@@ -52,7 +53,7 @@ export async function checkDegreeQuery(message: string): Promise<DegreeQueryResu
           'one per line; every line is a valid department you may name:\n' +
           catalogue +
           '\n\nAnswer with exactly one JSON object: ' +
-          '{"wantsRecommendation": boolean, "wantsDetails": boolean, "wantsCurriculum": boolean, "degree": string, "reason": string}. ' +
+          '{"wantsRecommendation": boolean, "wantsDetails": boolean, "wantsCurriculum": boolean, "wantsAllDetails": boolean, "degree": string, "reason": string}. ' +
           'Set wantsRecommendation true only when the user is asking what to study, ' +
           'for a degree/major/department recommendation, or which subject matches ' +
           'their interest. Set wantsDetails true only when the user asks for general ' +
@@ -61,17 +62,22 @@ export async function checkDegreeQuery(message: string): Promise<DegreeQueryResu
           'Set wantsCurriculum true only when the user asks specifically about a ' +
           'degree\'s curriculum, courses, 교과과정, 교육과정, 이수체계, 졸업요건, ' +
           'course list, or required subjects/credits (e.g. "what courses does the math ' +
-          'department have", "수학과 교육과정"). Among wantsDetails and ' +
-          'wantsCurriculum, at most one may be true; if the user asks about curriculum, ' +
-          'prefer wantsCurriculum over wantsDetails. The recommendation intent ' +
-          '(wantsRecommendation) is separate and mutually exclusive with the other two. ' +
+          'department have", "수학과 교육과정"). Set wantsAllDetails true only when ' +
+          'the user asks for department details in general (e.g. "provide department ' +
+          'details from the site", "what departments do you have", "부서 정보", ' +
+          '"학과 정보") WITHOUT naming one specific department. Among wantsDetails, ' +
+          'wantsCurriculum, and wantsAllDetails, at most one may be true; if a single ' +
+          'department is named prefer wantsDetails (or wantsCurriculum when they ask ' +
+          'about courses); if no department is named but they want general department ' +
+          'details, set wantsAllDetails true. The recommendation intent ' +
+          '(wantsRecommendation) is separate and mutually exclusive with the others. ' +
           'When wantsDetails or wantsCurriculum is true, resolve the department the user ' +
           'named to its ' +
           'exact canonical degree string from the catalogue above (the Korean name ' +
           'before the " — "), translating synonyms and any language (e.g. "math ' +
           'department", "mathematics", "수학" all resolve to "수학과"). ' +
           'Set degree to that exact canonical string. Do NOT invent a department ' +
-          'not in the catalogue; if the named department is not present, set all three ' +
+          'not in the catalogue; if the named department is not present, set all four ' +
           'booleans false. Otherwise set degree to "". If no intent applies, all are ' +
           'false and degree is "". Work in any language the user wrote.',
       },
@@ -86,6 +92,7 @@ export async function checkDegreeQuery(message: string): Promise<DegreeQueryResu
     wantsRecommendation: parsed.wantsRecommendation === true,
     wantsDetails: parsed.wantsDetails === true,
     wantsCurriculum: parsed.wantsCurriculum === true,
+    wantsAllDetails: parsed.wantsAllDetails === true,
     degree: typeof parsed.degree === 'string' ? parsed.degree : '',
     reason: String(parsed.reason ?? ''),
   }
@@ -179,6 +186,42 @@ export async function getDegreeDetails(degree: string): Promise<string> {
     const result = await client.callTool({
       name: 'get_degree_details',
       arguments: { degree },
+    })
+
+    const content = result.content as Array<{ type: string; text?: string }>
+    const text = content
+      .filter((item) => item?.type === 'text' && typeof item.text === 'string')
+      .map((item) => item.text as string)
+      .join('\n')
+
+    if (!text) {
+      throw new Error('MCP server returned no text result')
+    }
+    return text
+  } finally {
+    await transport.close().catch(() => {})
+  }
+}
+
+/**
+ * Fetch a summary of details for every department in the catalogue, using
+ * each department's official homepage URL from colleges.json. This is what
+ * should be called when the user asks in general for "department details from
+ * the site" without naming a specific department.
+ */
+export async function getAllDepartmentDetails(): Promise<string> {
+  const client = new Client({
+    name: 'chat-assistant',
+    version: '1.0.0',
+  })
+
+  const transport = new StreamableHTTPClientTransport(new URL(MCP_SERVER_URL))
+
+  try {
+    await client.connect(transport)
+    const result = await client.callTool({
+      name: 'get_all_department_details',
+      arguments: {},
     })
 
     const content = result.content as Array<{ type: string; text?: string }>
