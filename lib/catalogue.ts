@@ -15,6 +15,7 @@ export interface CatalogueEntry {
   url: string | null
   macroCredits: number | null
   microCredits: number | null
+  aliases: string[]
 }
 
 interface RawMeta {
@@ -22,29 +23,56 @@ interface RawMeta {
   url?: string
   credits1?: number | null
   credits2?: number | null
+  aliases?: string[]
 }
 
-export function loadCatalogue(): CatalogueEntry[] {
-  // Resolve from the repo root regardless of the Next.js cwd.
+interface RawCatalogue {
+  collegeAliases?: Record<string, string[]>
+  departments?: Record<string, RawMeta>
+}
+
+/**
+ * Load and cache the catalogue. `colleges.json` is the single source of truth
+ * for departments plus their English/synonym aliases and per-college aliases.
+ */
+let _cache: { entries: CatalogueEntry[]; collegeAliases: Record<string, string[]> } | null =
+  null
+
+function rawCatalogue(): { entries: CatalogueEntry[]; collegeAliases: Record<string, string[]> } {
+  if (_cache) return _cache
   const path = join(process.cwd(), 'colleges.json')
-  const raw = JSON.parse(readFileSync(path, 'utf-8')) as Record<string, RawMeta>
-  return Object.entries(raw).map(([degree, meta]) => ({
+  const raw = JSON.parse(readFileSync(path, 'utf-8')) as RawCatalogue
+  const departments = raw.departments ?? {}
+  const entries: CatalogueEntry[] = Object.entries(departments).map(([degree, meta]) => ({
     degree,
     college: meta.college,
     url: meta.url ?? null,
     macroCredits: meta.credits1 ?? null,
     microCredits: meta.credits2 ?? null,
+    aliases: meta.aliases ?? [],
   }))
+  _cache = { entries, collegeAliases: raw.collegeAliases ?? {} }
+  return _cache
 }
 
-/** Just the canonical degree names, used to seed the LLM resolution prompt. */
-export function degreeNames(): string[] {
-  return loadCatalogue().map((e) => e.degree)
+export function loadCatalogue(): CatalogueEntry[] {
+  return rawCatalogue().entries
 }
 
-/** Canonical degree names joined with their college, for context in the prompt. */
-export function degreeCatalogueText(): string {
+/** College name -> aliases, from the shared colleges.json. */
+export function collegeAliases(): Record<string, string[]> {
+  return rawCatalogue().collegeAliases
+}
+
+/**
+ * Degree lines with their aliases, so the classifier can resolve synonyms in
+ * any language (e.g. "math" -> "수학과") directly from the shared data source.
+ */
+export function degreeAliasText(): string {
   return loadCatalogue()
-    .map((e) => `${e.degree} — ${e.college}`)
+    .map((e) => {
+      const aliasLine = e.aliases.length ? ` (aliases: ${e.aliases.join(', ')})` : ''
+      return `${e.degree} — ${e.college}${aliasLine}`
+    })
     .join('\n')
 }

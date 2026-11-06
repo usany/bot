@@ -59,52 +59,10 @@ mcp = MCPServer(
 
 COLLEGES_PATH = Path(__file__).resolve().parent.parent / "colleges.json"
 
-# English (and common) aliases for each degree so queries like "math",
-# "mathematics", "physics", or "English literature" resolve to the
-# corresponding Korean department. Keys are normalized to lowercase.
-_DEGREE_ALIASES: dict[str, list[str]] = {
-    "국어국문학과": ["korean language and literature", "korean literature", "korean"],
-    "영어영문학과": ["english language and literature", "english literature", "english"],
-    "응용영어통번역학과": ["applied english interpretation and translation", "translation", "interpreting"],
-    "사학과": ["history"],
-    "철학과": ["philosophy"],
-    "정치외교학과": ["political science", "international relations", "politics"],
-    "행정학과": ["public administration", "administration"],
-    "사회학과": ["sociology"],
-    "미디어학과": ["media", "media studies", "communication"],
-    "경제학과": ["economics"],
-    "무역학과": ["trade", "international trade"],
-    "국제통상․금융투자학부": ["international commerce", "finance", "investment"],
-    "경영학과": ["business administration", "business", "management"],
-    "회계·세무학과": ["accounting", "taxation", "accounting and tax"],
-    "빅데이터응용학과": ["big data", "data science", "big data application"],
-    "Hospitality경영학과": ["hospitality management", "hospitality"],
-    "조리&푸드디자인학과": ["culinary", "food design", "culinary arts"],
-    "관광학과": ["tourism", "tourism management"],
-    "문화엔터테인먼트학과": ["culture and entertainment", "entertainment"],
-    "수학과": ["mathematics", "math", "maths"],
-    "물리학과": ["physics"],
-    "화학과": ["chemistry"],
-    "생물학과": ["biology", "biological sciences"],
-    "지리학과": ["geography"],
-    "정보디스플레이학과": ["information display", "display"],
-    "소재·발광소자학": ["materials", "light emitting devices"],
-    "구동소자·시스템학": ["device systems", "driving devices"],
-    "아동가족학과": ["child and family studies", "child development"],
-    "주거환경학과": ["housing and interior", "residential environment"],
-    "의상학과": ["fashion", "clothing and textiles", "fashion design"],
-    "식품영양학과": ["food and nutrition", "nutrition"],
-}
-
-# English aliases for colleges.
-_COLLEGE_ALIASES: dict[str, list[str]] = {
-    "문과대학": ["liberal arts", "humanities", "college of liberal arts"],
-    "정경대학": ["college of politics and economics", "politics and economics", "social sciences"],
-    "경영대학": ["business school", "college of business", "college of business administration"],
-    "호텔관광대학": ["hotel and tourism", "tourism college", "hospitality"],
-    "이과대학": ["college of science", "college of natural sciences", "science"],
-    "생활과학대학": ["college of human ecology", "human ecology", "living science"],
-}
+# English (and common) aliases for degrees and colleges are stored as data in
+# colleges.json — the single source of truth shared with the Next.js server.
+# `_degree_aliases()` and `_college_aliases()` below derive their {name ->
+# [aliases]} maps from that file, so all matching logic reads from one place.
 
 
 # ---------------------------------------------------------------------------
@@ -116,19 +74,49 @@ def _norm(s: str) -> str:
     return re.sub(r"\s+", " ", (s or "").lower().strip())
 
 
+# ---------------------------------------------------------------------------
+# Aliases — read from colleges.json (single source of truth).
+# ---------------------------------------------------------------------------
+
+_data_cache: dict[str, Any] | None = None
+
+
+def _load_data() -> dict[str, Any]:
+    """Load and cache the raw catalogue data (departments + aliases)."""
+    global _data_cache
+    if _data_cache is None:
+        _data_cache = json.loads(COLLEGES_PATH.read_text(encoding="utf-8"))
+    return _data_cache
+
+
+def _degree_aliases() -> dict[str, list[str]]:
+    """Degree name -> aliases, from the shared colleges.json."""
+    data = _load_data()
+    departments = data["departments"]
+    return {
+        degree: meta.get("aliases", [])
+        for degree, meta in departments.items()
+    }
+
+
+def _college_aliases() -> dict[str, list[str]]:
+    """College name -> aliases, from the shared colleges.json."""
+    return _load_data().get("collegeAliases", {})
+
+
 def _aliases_for(entry: dict) -> list[str]:
     """All searchable aliases (English + Korean) for a catalogue entry."""
     names = [entry["degree"], entry["college"]]
-    names += _DEGREE_ALIASES.get(entry["degree"], [])
-    names += _COLLEGE_ALIASES.get(entry["college"], [])
+    names += _degree_aliases().get(entry["degree"], [])
+    names += _college_aliases().get(entry["college"], [])
     return names
 
 
 def _load_entries() -> list[dict]:
     """Return the catalogue as a list of stable dicts (one per department)."""
-    data = json.loads(COLLEGES_PATH.read_text(encoding="utf-8"))
+    departments = _load_data()["departments"]
     entries: list[dict] = []
-    for degree, meta in data.items():
+    for degree, meta in departments.items():
         entries.append(
             {
                 "degree": degree,
@@ -136,7 +124,7 @@ def _load_entries() -> list[dict]:
                 "url": meta.get("url"),
                 "macro_credits": meta.get("credits1"),
                 "micro_credits": meta.get("credits2"),
-                "aliases": _DEGREE_ALIASES.get(degree, []),
+                "aliases": meta.get("aliases", []),
             }
         )
     return entries
@@ -171,7 +159,7 @@ def _find_degree(degree: str) -> dict | None:
     for e in entries:
         if _norm(e["degree"]) == target:
             return e
-        if target in [_norm(a) for a in _DEGREE_ALIASES.get(e["degree"], [])]:
+        if target in [_norm(a) for a in _degree_aliases().get(e["degree"], [])]:
             return e
 
     # 2) Substring match on Korean name.
@@ -181,14 +169,14 @@ def _find_degree(degree: str) -> dict | None:
 
     # 3) Substring match on aliases.
     for e in entries:
-        for alias in _DEGREE_ALIASES.get(e["degree"], []):
+        for alias in _degree_aliases().get(e["degree"], []):
             if target in alias or alias in target:
                 return e
 
     # 4) Token overlap.
     targets = set(target.split())
     for e in entries:
-        for alias in _DEGREE_ALIASES.get(e["degree"], []):
+        for alias in _degree_aliases().get(e["degree"], []):
             if targets & set(alias.split()):
                 return e
 
@@ -487,7 +475,7 @@ def search_catalogue(
 
     if college_n:
         def college_matches(e: dict) -> bool:
-            names = [e["college"]] + _COLLEGE_ALIASES.get(e["college"], [])
+            names = [e["college"]] + _college_aliases().get(e["college"], [])
             return any(college_n in _norm(n) or _norm(n) in college_n for n in names)
         entries = [e for e in entries if college_matches(e)]
 
