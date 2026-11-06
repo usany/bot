@@ -82,6 +82,10 @@ export async function POST(request: Request) {
     })
   } catch (err) {
     console.error('Chat error:', err)
-    return Response.json({ error: 'Failed to process message' }, { status: 500 })
+    const detail = err instanceof Error ? err.message : 'Unknown error'
+    return Response.json(
+      { error: 'Failed to process message', detail },
+      { status: 500 },
+    )
   }
 }

@@ -106,8 +106,11 @@ export default function Page() {
       }
       setMessages((prev) => [...prev, botMessage])
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to send message'
-      setError(errorMsg)
+      const message =
+        err instanceof Error && err.message !== 'Failed to process message'
+          ? err.message
+          : 'Something went wrong while processing your message. Please try again.'
+      setError(message)
       console.error('Send error:', err)
     } finally {
       setIsLoading(false)
