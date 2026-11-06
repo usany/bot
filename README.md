@@ -55,14 +55,14 @@ result to the model as system context so it can answer in natural language.
 
 ## Lecture timetable (`lectures.json`)
 
-`scripts/scrape-lectures.mjs` pulls the course timetable from the Kyung Hee
+`scripts/crawl-lectures.mjs` pulls the course timetable from the Kyung Hee
 registration system (`https://sugang.khu.ac.kr`, 종합시간표 조회) for the
 colleges in `colleges.json` and writes `lectures.json` at the repo root.
 
 ```sh
-pnpm scrape:lectures                       # current semester
-node scripts/scrape-lectures.mjs --year 2026 --term 20
-node scripts/scrape-lectures.mjs --out lectures-2026-1.json
+pnpm crawl:lectures                       # current semester
+node scripts/crawl-lectures.mjs --year 2026 --term 20
+node scripts/crawl-lectures.mjs --out lectures-2026-1.json
 ```
 
 `--term` is `10` (1학기), `20` (2학기), `15` (여름계절) or `25` (겨울계절).

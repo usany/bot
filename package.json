@@ -10,7 +10,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "biome lint",
-    "scrape:lectures": "node scripts/scrape-lectures.mjs"
+    "crawl:lectures": "node scripts/crawl-lectures.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",

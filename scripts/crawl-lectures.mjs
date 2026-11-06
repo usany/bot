@@ -23,9 +23,9 @@
  * fresh session.
  *
  * Usage:
- *   node scripts/scrape-lectures.mjs                 # current semester
- *   node scripts/scrape-lectures.mjs --year 2026 --term 20
- *   node scripts/scrape-lectures.mjs --out lectures.json
+ *   node scripts/crawl-lectures.mjs                 # current semester
+ *   node scripts/crawl-lectures.mjs --year 2026 --term 20
+ *   node scripts/crawl-lectures.mjs --out lectures.json
  */
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -249,7 +249,7 @@ async function main() {
 	const args = parseArgs(process.argv.slice(2));
 	if (args.help) {
 		console.log(
-			"usage: node scripts/scrape-lectures.mjs [--year Y] [--term 10|20|15|25] [--out file]",
+			"usage: node scripts/crawl-lectures.mjs [--year Y] [--term 10|20|15|25] [--out file]",
 		);
 		return;
 	}
