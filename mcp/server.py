@@ -458,10 +458,13 @@ def get_catalogue() -> list[dict[str, Any]]:
     title="Search catalogue by interest",
     structured_output=True,
     description=(
-        "Fuzzy-match departments against a free-text interest (any language) and "
-        "optionally restrict to a college. Returns a JSON array of matching "
+        "Fuzzy-match departments against a free-text interest. Best with Korean "
+        "or English (the catalogue and its aliases are Korean/English); translate "
+        "other languages to Korean first. Optionally restrict to a college. "
+        "Returns a JSON array of matching "
         "{degree, college, url, macro_credits, micro_credits} objects, best "
-        "match first. This is a search tool: it returns ranked facts, not prose."
+        "match first, or an empty array when nothing matches. This is a search "
+        "tool: it returns ranked facts, not prose."
     ),
 )
 def search_catalogue(
@@ -491,10 +494,12 @@ def search_catalogue(
                 s += 2
         return s
 
+    if not interest_n and not college_n:
+        return [_public_entry(e) for e in entries]
+
     ranked = sorted(entries, key=score, reverse=True)
     top = [e for e in ranked if score(e) > 0]
-    result = top if top else entries
-    return [_public_entry(e) for e in result]
+    return [_public_entry(e) for e in top]
 
 
 @mcp.tool(

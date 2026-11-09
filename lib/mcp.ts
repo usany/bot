@@ -86,6 +86,10 @@ export async function callTool(
  * `tool` is the MCP tool name to call; `degree` is the resolved canonical
  * degree (when relevant) — both are strings, not bespoke flags, so adding a
  * tool to the server doesn't require editing this classifier's shape.
+ *
+ * `interest` and `college` are emitted in canonical Korean (the exact strings
+ * from the catalogue), so the classifier — not the alias table — absorbs any
+ * language the user writes, keeping downstream matching language-independent.
  */
 export interface DegreeQueryResult {
   tool: string
@@ -119,13 +123,14 @@ export async function checkDegreeQuery(message: string): Promise<DegreeQueryResu
           '\n\nAnswer with exactly one JSON object: ' +
           '{"tool": string, "degree": string, "interest": string, "college": string, "reason": string}. ' +
           'Choose `tool` from exactly these values (empty string "" means no catalogue tool applies):\n' +
-          '- "search_catalogue": the user is asking what to study, for a recommendation, or which major matches their interest. Put the summarized interest in `interest` (any language) and leave `degree` empty.\n' +
+          '- "search_catalogue": the user is asking what to study, for a recommendation, or which major matches their interest. Put a concise **Korean** summary of the interest in `interest` (translate the user\'s words into Korean, using the Korean terms that appear in the catalogue above) and leave `degree` empty.\n' +
           '- "get_department": the user asks for general details or an introduction about one specific department. Resolve it to the exact canonical `degree` string (the Korean name before " — "), translating synonyms/any language (e.g. "math" -> "수학과").\n' +
           '- "get_curriculum": the user asks specifically about a department\'s curriculum, courses, 교과과정, 교육과정, 이수체계, 졸업요건, or required credits. Resolve the department to the canonical `degree` string.\n' +
           '- "get_catalogue": the user asks for department details in general without naming one (e.g. "what departments do you have", "부서 정보"). Leave `degree` empty.\n' +
           'If the named department is not in the catalogue, set `tool` to "" (empty). ' +
           'If no intent applies, `tool` is "" and `degree` is "". Work in any language the user wrote.\n' +
-          '`college` is only set when the user names a specific college to filter by; otherwise "".',
+          '`college` is only set when the user names a specific college to filter by; otherwise "". ' +
+          'When set, `college` must be the exact **Korean** college name from the catalogue lines (translate from the user\'s language, e.g. "college of science" -> "이과대학").',
       },
       { role: 'user', content: message },
     ],
