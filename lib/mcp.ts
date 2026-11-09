@@ -1,7 +1,7 @@
 import 'server-only'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
-import { degreeAliasText } from '@/lib/catalogue'
+import { catalogueText } from '@/lib/catalogue'
 import { openai, CHAT_MODEL } from '@/lib/openai'
 
 const MCP_SERVER_URL = process.env.MCP_SERVER_URL ?? 'http://127.0.0.1:3100/mcp'
@@ -88,7 +88,7 @@ export async function callTool(
  * tool to the server doesn't require editing this classifier's shape.
  *
  * `interest` and `college` are emitted in canonical Korean (the exact strings
- * from the catalogue), so the classifier — not the alias table — absorbs any
+ * from the catalogue), so the classifier — not the MCP matcher — absorbs any
  * language the user writes, keeping downstream matching language-independent.
  */
 export interface DegreeQueryResult {
@@ -108,7 +108,7 @@ export interface DegreeQueryResult {
  * without a matching set of booleans here.
  */
 export async function checkDegreeQuery(message: string): Promise<DegreeQueryResult> {
-  const catalogue = degreeAliasText()
+  const catalogue = catalogueText()
 
   const completion = await openai.chat.completions.create({
     model: CHAT_MODEL,

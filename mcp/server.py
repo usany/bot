@@ -26,7 +26,7 @@ however they like.
 Tools:
 
     get_catalogue      — the full structured catalogue (one object per department).
-    search_catalogue   — fuzzy-match departments by interest/college (any language).
+    search_catalogue   — fuzzy-match departments by interest/college (canonical Korean).
     get_department     — fetch a department's live homepage intro (structured).
     get_curriculum     — fetch a department's curriculum/courses pages (structured).
     fetch_text         — generic web-page text extraction (any URL).
@@ -59,10 +59,10 @@ mcp = MCPServer(
 
 COLLEGES_PATH = Path(__file__).resolve().parent.parent / "colleges.json"
 
-# English (and common) aliases for degrees and colleges are stored as data in
+# Matching is done against the canonical Korean degree/college names in
 # colleges.json — the single source of truth shared with the Next.js server.
-# `_degree_aliases()` and `_college_aliases()` below derive their {name ->
-# [aliases]} maps from that file, so all matching logic reads from one place.
+# Free-text language resolution is the client's job: the Next.js chat translates
+# the user's wording to canonical Korean before calling these tools.
 
 
 # ---------------------------------------------------------------------------
@@ -75,41 +75,19 @@ def _norm(s: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Aliases — read from colleges.json (single source of truth).
+# Catalogue data — read from colleges.json (single source of truth).
 # ---------------------------------------------------------------------------
 
 _data_cache: dict[str, Any] | None = None
 
 
 def _load_data() -> dict[str, Any]:
-    """Load and cache the raw catalogue data (departments + aliases)."""
+    """Load and cache the raw catalogue data (departments)."""
     global _data_cache
     if _data_cache is None:
         _data_cache = json.loads(COLLEGES_PATH.read_text(encoding="utf-8"))
     return _data_cache
 
-
-def _degree_aliases() -> dict[str, list[str]]:
-    """Degree name -> aliases, from the shared colleges.json."""
-    data = _load_data()
-    departments = data["departments"]
-    return {
-        degree: meta.get("aliases", [])
-        for degree, meta in departments.items()
-    }
-
-
-def _college_aliases() -> dict[str, list[str]]:
-    """College name -> aliases, from the shared colleges.json."""
-    return _load_data().get("collegeAliases", {})
-
-
-def _aliases_for(entry: dict) -> list[str]:
-    """All searchable aliases (English + Korean) for a catalogue entry."""
-    names = [entry["degree"], entry["college"]]
-    names += _degree_aliases().get(entry["degree"], [])
-    names += _college_aliases().get(entry["college"], [])
-    return names
 
 
 def _load_entries() -> list[dict]:
@@ -124,7 +102,6 @@ def _load_entries() -> list[dict]:
                 "url": meta.get("url"),
                 "macro_credits": meta.get("credits1"),
                 "micro_credits": meta.get("credits2"),
-                "aliases": meta.get("aliases", []),
             }
         )
     return entries
@@ -142,7 +119,7 @@ def _public_entry(e: dict) -> dict:
 
 
 def _find_degree(degree: str) -> dict | None:
-    """Return the catalogue entry whose name or alias matches `degree`."""
+    """Return the catalogue entry whose canonical name matches `degree`."""
     target = _norm(degree)
     if not target:
         return None
@@ -155,30 +132,15 @@ def _find_degree(degree: str) -> dict | None:
         if target.endswith(suffix):
             target = target[: -len(suffix)].strip()
 
-    # 1) Exact match on Korean name or alias.
+    # 1) Exact match on the canonical name.
     for e in entries:
         if _norm(e["degree"]) == target:
             return e
-        if target in [_norm(a) for a in _degree_aliases().get(e["degree"], [])]:
-            return e
 
-    # 2) Substring match on Korean name.
+    # 2) Substring match on the canonical name.
     for e in entries:
         if target in _norm(e["degree"]):
             return e
-
-    # 3) Substring match on aliases.
-    for e in entries:
-        for alias in _degree_aliases().get(e["degree"], []):
-            if target in alias or alias in target:
-                return e
-
-    # 4) Token overlap.
-    targets = set(target.split())
-    for e in entries:
-        for alias in _degree_aliases().get(e["degree"], []):
-            if targets & set(alias.split()):
-                return e
 
     return None
 
@@ -458,18 +420,18 @@ def get_catalogue() -> list[dict[str, Any]]:
     title="Search catalogue by interest",
     structured_output=True,
     description=(
-        "Fuzzy-match departments against a free-text interest. Best with Korean "
-        "or English (the catalogue and its aliases are Korean/English); translate "
-        "other languages to Korean first. Optionally restrict to a college. "
-        "Returns a JSON array of matching "
+        "Fuzzy-match departments against a free-text interest. Matches against "
+        "the canonical Korean department/college names, so translate the "
+        "user's language to Korean first (the chat pipeline does this). "
+        "Optionally restrict to a college. Returns a JSON array of matching "
         "{degree, college, url, macro_credits, micro_credits} objects, best "
         "match first, or an empty array when nothing matches. This is a search "
         "tool: it returns ranked facts, not prose."
     ),
 )
 def search_catalogue(
-    interest: Annotated[str, "The user's interest or field, in any language (e.g. 'mathematics', '수학', 'finance')."],
-    college: Annotated[str, "Optional college filter, any language (e.g. '이과대학', 'college of science')."] = "",
+    interest: Annotated[str, "The user's interest or field, in Korean (e.g. '수학', '금융')."],
+    college: Annotated[str, "Optional college filter, in Korean (e.g. '이과대학')."] = "",
 ) -> list[dict[str, Any]]:
     """Return departments ranked by relevance to `interest`."""
     interest_n = _norm(interest)
@@ -478,20 +440,17 @@ def search_catalogue(
 
     if college_n:
         def college_matches(e: dict) -> bool:
-            names = [e["college"]] + _college_aliases().get(e["college"], [])
-            return any(college_n in _norm(n) or _norm(n) in college_n for n in names)
+            return college_n in _norm(e["college"]) or _norm(e["college"]) in college_n
         entries = [e for e in entries if college_matches(e)]
 
     tokens = [t for t in interest_n.split() if t]
 
     def score(e: dict) -> int:
-        names = [f"{e['degree']} {e['college']}"] + _aliases_for(e)
+        name = _norm(f"{e['degree']} {e['college']}")
         s = 0
-        for name in names:
-            n = _norm(name)
-            s += sum(1 for t in tokens if t in n)
-            if interest_n and interest_n in n:
-                s += 2
+        s += sum(1 for t in tokens if t in name)
+        if interest_n and interest_n in name:
+            s += 2
         return s
 
     if not interest_n and not college_n:
@@ -506,13 +465,14 @@ def search_catalogue(
     title="Get department homepage introduction",
     structured_output=True,
     description=(
-        "Resolve a degree name (any language) to a department and fetch its live "
-        "homepage introduction. Returns a JSON object {degree, college, url, text} "
-        "where text is the cleaned page content (may be empty if fetch failed)."
+        "Resolve a canonical Korean degree name to a department and fetch its "
+        "live homepage introduction. Returns a JSON object {degree, college, "
+        "url, text} where text is the cleaned page content (may be empty if "
+        "fetch failed)."
     ),
 )
 def get_department(
-    degree: Annotated[str, "Degree/department name, any language (e.g. '수학과', 'math', 'mathematics')."],
+    degree: Annotated[str, "Canonical degree/department name, Korean (e.g. '수학과')."],
 ) -> dict[str, Any]:
     """Fetch a department's homepage intro as a structured object."""
     entry = _find_degree(degree)
@@ -544,13 +504,13 @@ def get_department(
     title="Get department curriculum",
     structured_output=True,
     description=(
-        "Resolve a degree name and fetch its curriculum/courses/graduation-"
-        "requirement pages. Returns a JSON object {degree, college, url, text, "
-        "pages} where pages is a list of the sub-page URLs used."
+        "Resolve a canonical Korean degree name and fetch its curriculum/courses/"
+        "graduation-requirement pages. Returns a JSON object {degree, college, "
+        "url, text, pages} where pages is a list of the sub-page URLs used."
     ),
 )
 def get_curriculum(
-    degree: Annotated[str, "Degree/department name, any language."],
+    degree: Annotated[str, "Canonical degree/department name, Korean."],
 ) -> dict[str, Any]:
     """Fetch a department's curriculum pages as a structured object."""
     entry = _find_degree(degree)

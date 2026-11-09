@@ -97,7 +97,7 @@ the two default semesters has no published data yet (e.g. next year's 1학기), 
 is reported and skipped rather than failing the whole run.
 
 The merge is textual: only the trailing `offerings` member is rewritten, so the
-hand-curated `collegeAliases` and `departments` sections keep their formatting.
+hand-curated `departments` section keeps its formatting.
 `lib/catalogue.ts` exposes the result through `loadOfferings()` (map by term
 code), `latestOfferings()` and `lecturesForDegree(degree, termCode?)`.
 
@@ -122,10 +122,9 @@ What it does:
 
 ```jsonc
 {
-  "collegeAliases": { "문과대학": ["liberal arts", "humanities"] },
   "departments": {
     "경제학과": { "college": "정경대학", "url": "https://econ.khu.ac.kr",
-                 "credits1": 39, "credits2": 21, "aliases": ["economics"] }
+                 "credits1": 39, "credits2": 21 }
   },
   "offerings": {
     "202610": { "source": "...", "year": 2026, "term": 10, "termCode": "202610",

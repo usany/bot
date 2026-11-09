@@ -8,6 +8,9 @@ import { join } from 'node:path'
  * loads, but surfaced here so the LLM can resolve a user's phrasing (in any
  * language) to the exact `degree` key the MCP tool expects.
  *
+ * Language resolution is the LLM's job: the file stores only the canonical
+ * Korean names, and the classifier translates the user's wording to those keys.
+ *
  * The same file also carries the crawled timetable under `offerings`, so a
  * single read gives both the degree metadata and the current semester's
  * lectures.
@@ -19,7 +22,6 @@ export interface CatalogueEntry {
   url: string | null
   macroCredits: number | null
   microCredits: number | null
-  aliases: string[]
 }
 
 interface RawMeta {
@@ -27,11 +29,9 @@ interface RawMeta {
   url?: string
   credits1?: number | null
   credits2?: number | null
-  aliases?: string[]
 }
 
 interface RawCatalogue {
-  collegeAliases?: Record<string, string[]>
   departments?: Record<string, RawMeta>
   offerings?: LectureOfferings
 }
@@ -85,17 +85,15 @@ export type LectureOfferings = Record<string, SemesterOfferings>
 
 /**
  * Load and cache the catalogue. `colleges.json` is the single source of truth
- * for departments plus their English/synonym aliases and per-college aliases.
+ * for departments (canonical Korean names) plus the crawled timetable.
  */
 let _cache: {
   entries: CatalogueEntry[]
-  collegeAliases: Record<string, string[]>
   offerings: LectureOfferings
 } | null = null
 
 function rawCatalogue(): {
   entries: CatalogueEntry[]
-  collegeAliases: Record<string, string[]>
   offerings: LectureOfferings
 } {
   if (_cache) return _cache
@@ -108,11 +106,9 @@ function rawCatalogue(): {
     url: meta.url ?? null,
     macroCredits: meta.credits1 ?? null,
     microCredits: meta.credits2 ?? null,
-    aliases: meta.aliases ?? [],
   }))
   _cache = {
     entries,
-    collegeAliases: raw.collegeAliases ?? {},
     offerings: raw.offerings ?? {},
   }
   return _cache
@@ -120,11 +116,6 @@ function rawCatalogue(): {
 
 export function loadCatalogue(): CatalogueEntry[] {
   return rawCatalogue().entries
-}
-
-/** College name -> aliases, from the shared colleges.json. */
-export function collegeAliases(): Record<string, string[]> {
-  return rawCatalogue().collegeAliases
 }
 
 /**
@@ -157,14 +148,12 @@ export function lecturesForDegree(degree: string, termCode?: string): Lecture[] 
 }
 
 /**
- * Degree lines with their aliases, so the classifier can resolve synonyms in
- * any language (e.g. "math" -> "수학과") directly from the shared data source.
+ * Degree lines for the classifier, so it can resolve synonyms in any language
+ * directly from the shared data source. The classifier translates the user's
+ * wording to the canonical Korean `degree` (the text before " — ").
  */
-export function degreeAliasText(): string {
+export function catalogueText(): string {
   return loadCatalogue()
-    .map((e) => {
-      const aliasLine = e.aliases.length ? ` (aliases: ${e.aliases.join(', ')})` : ''
-      return `${e.degree} — ${e.college}${aliasLine}`
-    })
+    .map((e) => `${e.degree} — ${e.college}`)
     .join('\n')
 }

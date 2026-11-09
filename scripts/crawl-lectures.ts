@@ -30,7 +30,7 @@
  *
  * The timetable is merged under the `offerings` key of the target file, so the
  * default run rewrites only that block of colleges.json and leaves the curated
- * `collegeAliases` / `departments` sections untouched.
+ * `departments` section untouched.
  */
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -431,9 +431,9 @@ function isStandaloneTimetable(text: string): boolean {
 
 /**
  * Merge the crawled semesters into an existing document (`colleges.json` by
- * default) without reflowing it: the curated `collegeAliases` / `departments`
- * sections keep their hand-written formatting and only the trailing
- * `offerings` member is rewritten. A previous standalone timetable file is
+ * default) without reflowing it: the curated `departments` section keeps its
+ * hand-written formatting and only the trailing `offerings` member is
+ * rewritten. A previous standalone timetable file is
  * replaced wholesale.
  */
 function mergeOfferings(
@@ -462,7 +462,7 @@ function mergeOfferings(
 	// Fail loudly rather than corrupt a curated file.
 	const parsed = JSON.parse(merged) as Record<string, unknown>;
 	for (const key of Object.keys(parsed)) {
-		if (!["collegeAliases", "departments", "offerings"].includes(key)) {
+		if (!["departments", "offerings"].includes(key)) {
 			console.warn(`! merged file keeps unknown top-level key: ${key}`);
 		}
 	}
