@@ -61,15 +61,20 @@ colleges in `colleges.json` and merges it into `colleges.json` under the
 top-level `offerings` key. There is no separate timetable file.
 
 ```sh
-pnpm crawl:lectures                       # current semester, merges into colleges.json
-pnpm crawl:lectures --previous            # one semester back
+pnpm crawl:lectures                       # both 1학기 and 2학기, merges into colleges.json
+pnpm crawl:lectures --term 20             # only 2학기
+pnpm crawl:lectures --previous            # both semesters, one semester back
 node scripts/crawl-lectures.ts --year 2026 --term 20
 node scripts/crawl-lectures.ts --out offerings-2026-1.json   # scratch file
 ```
 
-`--term` is `10` (1학기), `20` (2학기), `15` (여름계절) or `25` (겨울계절).
+Without `--term` the run crawls **both regular semesters** (`10` and `20`) of the
+resolved year and stores them side by side, keyed by term code. Pass `--term` to
+crawl a single one: `10` (1학기), `20` (2학기), `15` (여름계절) or `25`
+(겨울계절).
 
-`--previous` (or `-p`) steps one semester back from the resolved semester:
+`--previous` (or `-p`) steps each semester one step back — 1학기 becomes the
+previous year's 2학기, 2학기 becomes the same year's 1학기:
 
 | given | previous |
 | --- | --- |
@@ -78,14 +83,19 @@ node scripts/crawl-lectures.ts --out offerings-2026-1.json   # scratch file
 | 2026 여름계절 (`15`) | 2026 1학기 (`10`) |
 | 2026 겨울계절 (`25`) | 2026 2학기 (`20`) |
 
-It composes with `--year`/`--term` (`--year 2026 --term 10 --previous` →
-2025-2), and the merged `offerings` block records the shifted semester. Note the
-block is replaced, not appended: pass `--out` to keep both semesters' data.
+So the default run covers `202610` and `202620`, while `--previous` covers
+`202520` and `202610`. It composes with `--year`/`--term` (`--year 2026 --term
+10 --previous` → 2025-2).
+
+Merge semantics: `offerings` is keyed by term code, so a run replaces only the
+semesters it crawled and keeps any other semester already in the file. If one of
+the two default semesters has no published data yet (e.g. next year's 1학기), it
+is reported and skipped rather than failing the whole run.
 
 The merge is textual: only the trailing `offerings` member is rewritten, so the
 hand-curated `collegeAliases` and `departments` sections keep their formatting.
-`lib/catalogue.ts` exposes the result through `loadOfferings()` /
-`lecturesForDegree()`.
+`lib/catalogue.ts` exposes the result through `loadOfferings()` (map by term
+code), `latestOfferings()` and `lecturesForDegree(degree, termCode?)`.
 
 What it does:
 
@@ -114,22 +124,27 @@ What it does:
                  "credits1": 39, "credits2": 21, "aliases": ["economics"] }
   },
   "offerings": {
-    "source": "https://sugang.khu.ac.kr/core?attribute=lectListJson",
-    "year": 2026, "term": 20, "termCode": "202620",
-    "semester": "2026-2학기", "fetchedAt": "2026-11-09T09:47:02.986Z",
-    "fieldGbLegend": { "05": { "ko": "전공선택", "en": "Elective Major Studies" } },
-    "colleges": [
-      { "college": "College of Politics & Economics", "collegeKo": "정경대학",
-        "collegeCd": "A00422", "lectureCount": 202,
-        "departments": [
-          { "name": "경제학과 경제학", "code": "A00430", "catalogue": "경제학과",
-            "lectureCount": 39,
-            "lectures": [
-              { "subjectCd": "ECON3064", "name": "부동산경제분석",
-                "credits": 3, "fieldGb": "05", "campus": "서울", "note": null }
-            ] }
-        ] }
-    ]
+    "202610": { "source": "...", "year": 2026, "term": 10, "termCode": "202610",
+                "semester": "2026-1학기", "fetchedAt": "...",
+                "fieldGbLegend": {...}, "colleges": [...] },
+    "202620": {
+      "source": "https://sugang.khu.ac.kr/core?attribute=lectListJson",
+      "year": 2026, "term": 20, "termCode": "202620",
+      "semester": "2026-2학기", "fetchedAt": "2026-11-09T09:47:02.986Z",
+      "fieldGbLegend": { "05": { "ko": "전공선택", "en": "Elective Major Studies" } },
+      "colleges": [
+        { "college": "College of Politics & Economics", "collegeKo": "정경대학",
+          "collegeCd": "A00422", "lectureCount": 202,
+          "departments": [
+            { "name": "경제학과 경제학", "code": "A00430", "catalogue": "경제학과",
+              "lectureCount": 39,
+              "lectures": [
+                { "subjectCd": "ECON3064", "name": "부동산경제분석",
+                  "credits": 3, "fieldGb": "05", "campus": "서울", "note": null }
+              ] }
+          ] }
+      ]
+    }
   }
 }
 ```

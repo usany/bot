@@ -215,7 +215,12 @@ interface CodeData {
 }
 
 /** data_<year>.js assigns `var daehak_<year><term> = {...}` / `major_...`. */
+/** One fetch per year, shared by the 1학기 and 2학기 crawls. */
+const codeDataCache = new Map<number, CodeData>();
+
 async function loadCodeData(year: number): Promise<CodeData> {
+	const cached = codeDataCache.get(year);
+	if (cached) return cached;
 	const { body } = await new Session().get(`/resources/data/data_${year}.js`);
 	if (!body.includes("daehak_"))
 		throw new Error(`no college data for ${year} (data_${year}.js)`);
@@ -225,7 +230,9 @@ async function loadCodeData(year: number): Promise<CodeData> {
 		"ctx",
 		body.replace(/var\s+(daehak_\d+|major_\d+)\s*=/g, "ctx.$1 =") + "\n",
 	)(ctx);
-	return ctx as unknown as CodeData;
+	const data = ctx as unknown as CodeData;
+	codeDataCache.set(year, data);
+	return data;
 }
 
 // ------------------------------------------------------------------ scraping
@@ -351,8 +358,11 @@ interface CollegeResult {
 	departments: DepartmentResult[];
 }
 
-/** The timetable body, stored under `offerings` in the merged document. */
-interface Offerings {
+/** Regular semesters crawled when `--term` is not given: 1학기 and 2학기. */
+const DEFAULT_TERMS = [10, 20];
+
+/** The timetable body for one semester. */
+interface SemesterOfferings {
 	source: string;
 	year: number;
 	term: number;
@@ -362,6 +372,9 @@ interface Offerings {
 	fieldGbLegend: Record<string, { ko: string; en: string }>;
 	colleges: CollegeResult[];
 }
+
+/** Crawled semesters under `offerings`, keyed by term code (e.g. "202610"). */
+type OfferingsDocument = Record<string, SemesterOfferings>;
 
 // ------------------------------------------------------------------- writing
 
@@ -385,12 +398,16 @@ function isStandaloneTimetable(text: string): boolean {
 }
 
 /**
- * Merge the timetable into an existing document (`colleges.json` by default)
- * without reflowing it: the curated `collegeAliases` / `departments` sections
- * keep their hand-written formatting and only the trailing `offerings` member
- * is rewritten. A previous standalone timetable file is replaced wholesale.
+ * Merge the crawled semesters into an existing document (`colleges.json` by
+ * default) without reflowing it: the curated `collegeAliases` / `departments`
+ * sections keep their hand-written formatting and only the trailing
+ * `offerings` member is rewritten. A previous standalone timetable file is
+ * replaced wholesale.
  */
-function mergeOfferings(existing: string | null, offerings: Offerings): string {
+function mergeOfferings(
+	existing: string | null,
+	offerings: OfferingsDocument,
+): string {
 	const block = indent(JSON.stringify(offerings, null, 2), 2);
 	const text = existing?.trimEnd() ? existing.trimEnd() : null;
 
@@ -420,33 +437,35 @@ function mergeOfferings(existing: string | null, offerings: Offerings): string {
 	return merged;
 }
 
-async function main(): Promise<void> {
-	const args = parseArgs(process.argv.slice(2));
-	if (args.help) {
-		console.log(
-			"usage: node scripts/crawl-lectures.ts [--year Y] [--term 10|20|15|25] [--previous] [--out colleges.json]",
-		);
-		return;
+/** Semesters already present under `offerings`, keyed by term code. */
+function existingOfferings(text: string | null): OfferingsDocument {
+	if (!text?.trim()) return {};
+	const parsed = JSON.parse(text) as Record<string, unknown>;
+	const offerings = parsed.offerings;
+	if (!offerings || typeof offerings !== "object") return {};
+
+	const record = offerings as Record<string, unknown>;
+	// Earlier shape: a single semester body at the top of `offerings`.
+	if (typeof record.termCode === "string" && Array.isArray(record.colleges)) {
+		return { [record.termCode]: offerings as SemesterOfferings };
 	}
-	const fallback = currentSemester();
-	const current = {
-		year: args.year ?? fallback.year,
-		term: args.term ?? fallback.term,
-	};
-	// --previous shifts one semester back: 1학기 -> last year's 2학기,
-	// 2학기 -> this year's 1학기.
-	const target = args.previous
-		? previousSemester(current.year, current.term)
-		: current;
-	const { year, term } = target;
+	return offerings as OfferingsDocument;
+}
 
-	const catalogue = JSON.parse(
-		await readFile(join(ROOT, "colleges.json"), "utf8"),
-	) as Catalogue;
-	const colleges = [
-		...new Set(Object.values(catalogue.departments).map((d) => d.college)),
-	];
-
+/** Crawl every catalogue college for one semester. */
+async function crawlSemester({
+	year,
+	term,
+	delay,
+	catalogue,
+	colleges,
+}: {
+	year: number;
+	term: number;
+	delay: number;
+	catalogue: Catalogue;
+	colleges: string[];
+}): Promise<SemesterOfferings> {
 	const codeData = await loadCodeData(year);
 	const collegeRows = codeData[`daehak_${year}${term}`];
 	const majorRows = codeData[`major_${year}${term}`];
@@ -460,11 +479,10 @@ async function main(): Promise<void> {
 	}
 
 	console.log(
-		`sugang.khu.ac.kr — ${year}-${TERM_LABEL[term] ?? term} (${year}${term})` +
-			(args.previous ? " [previous semester]" : ""),
+		`sugang.khu.ac.kr — ${year}-${TERM_LABEL[term] ?? term} (${year}${term})`,
 	);
 
-	const result: Offerings = {
+	const result: SemesterOfferings = {
 		source: `${BASE}/core?attribute=lectListJson`,
 		year,
 		term,
@@ -534,7 +552,7 @@ async function main(): Promise<void> {
 			process.stdout.write(
 				`  ${collegeName} / ${dept.nm}: ${lectures.length}\n`,
 			);
-			await sleep(args.delay);
+			await sleep(delay);
 		}
 
 		result.colleges.push({
@@ -546,13 +564,6 @@ async function main(): Promise<void> {
 		});
 	}
 
-	const total = result.colleges.reduce((sum, c) => sum + c.lectureCount, 0);
-	const outPath = join(ROOT, args.out);
-	await writeFile(
-		outPath,
-		mergeOfferings(await readTextIfExists(outPath), result),
-	);
-
 	const matched = new Set(
 		result.colleges.flatMap((c) =>
 			c.departments
@@ -560,14 +571,72 @@ async function main(): Promise<void> {
 				.filter((v): v is string => Boolean(v)),
 		),
 	);
-	const unmatched = Object.keys(catalogue.departments).filter(
-		(name) => !matched.has(name),
-	);
-	for (const name of unmatched)
-		console.warn(`! not offered this term: ${name}`);
+	for (const name of Object.keys(catalogue.departments)) {
+		if (!matched.has(name)) {
+			console.warn(`! not offered in ${result.termCode}: ${name}`);
+		}
+	}
 
+	const total = result.colleges.reduce((sum, c) => sum + c.lectureCount, 0);
+	console.log(`  ${total} lectures across ${result.colleges.length} colleges`);
+	return result;
+}
+
+async function main(): Promise<void> {
+	const args = parseArgs(process.argv.slice(2));
+	if (args.help) {
+		console.log(
+			"usage: node scripts/crawl-lectures.ts [--year Y] [--term 10|20|15|25] [--previous] [--out colleges.json]",
+		);
+		console.log(
+			"       without --term both regular semesters (10 and 20) are crawled",
+		);
+		return;
+	}
+
+	// Both regular semesters by default; `--term` narrows the run to one.
+	const baseYear = args.year ?? currentSemester().year;
+	const terms = args.term === null ? DEFAULT_TERMS : [args.term];
+
+	const catalogue = JSON.parse(
+		await readFile(join(ROOT, "colleges.json"), "utf8"),
+	) as Catalogue;
+	const colleges = [
+		...new Set(Object.values(catalogue.departments).map((d) => d.college)),
+	];
+
+	const outPath = join(ROOT, args.out);
+	const existing = await readTextIfExists(outPath);
+	// Semesters already crawled stay in the file; only these term codes change.
+	const offerings = existingOfferings(existing);
+
+	let crawled = 0;
+	for (const term of terms) {
+		// --previous shifts one semester back: 1학기 -> last year's 2학기,
+		// 2학기 -> this year's 1학기, so the default run covers Y-1 2학기 and Y 1학기.
+		const target = args.previous
+			? previousSemester(baseYear, term)
+			: { year: baseYear, term };
+		try {
+			const semester = await crawlSemester({
+				...target,
+				delay: args.delay,
+				catalogue,
+				colleges,
+			});
+			offerings[semester.termCode] = semester;
+			crawled++;
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			if (terms.length === 1) throw error;
+			console.warn(`! skipped ${target.year}${target.term}: ${message}`);
+		}
+	}
+	if (!crawled) throw new Error("no semester could be crawled");
+
+	await writeFile(outPath, mergeOfferings(existing, offerings));
 	console.log(
-		`\n${total} lectures across ${result.colleges.length} colleges -> ${outPath}`,
+		`\n${Object.keys(offerings).length} semester(s) -> ${outPath}: ${Object.keys(offerings).sort().join(", ")}`,
 	);
 }
 

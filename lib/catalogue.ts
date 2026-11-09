@@ -68,8 +68,8 @@ export interface OfferedCollege {
   departments: OfferedDepartment[]
 }
 
-/** The crawled semester timetable (`scripts/crawl-lectures.ts`). */
-export interface LectureOfferings {
+/** One crawled semester (`scripts/crawl-lectures.ts`). */
+export interface SemesterOfferings {
   source: string
   year: number
   term: number
@@ -80,6 +80,9 @@ export interface LectureOfferings {
   colleges: OfferedCollege[]
 }
 
+/** `offerings` in colleges.json: crawled semesters keyed by term code. */
+export type LectureOfferings = Record<string, SemesterOfferings>
+
 /**
  * Load and cache the catalogue. `colleges.json` is the single source of truth
  * for departments plus their English/synonym aliases and per-college aliases.
@@ -87,13 +90,13 @@ export interface LectureOfferings {
 let _cache: {
   entries: CatalogueEntry[]
   collegeAliases: Record<string, string[]>
-  offerings: LectureOfferings | null
+  offerings: LectureOfferings
 } | null = null
 
 function rawCatalogue(): {
   entries: CatalogueEntry[]
   collegeAliases: Record<string, string[]>
-  offerings: LectureOfferings | null
+  offerings: LectureOfferings
 } {
   if (_cache) return _cache
   const path = join(process.cwd(), 'colleges.json')
@@ -110,7 +113,7 @@ function rawCatalogue(): {
   _cache = {
     entries,
     collegeAliases: raw.collegeAliases ?? {},
-    offerings: raw.offerings ?? null,
+    offerings: raw.offerings ?? {},
   }
   return _cache
 }
@@ -125,18 +128,28 @@ export function collegeAliases(): Record<string, string[]> {
 }
 
 /**
- * The semester timetable merged into colleges.json, or null when it has not
- * been crawled yet. `fieldGb` labels live in `offerings.fieldGbLegend`.
+ * The timetables merged into colleges.json, keyed by term code ("202610",
+ * "202620"). Empty when nothing has been crawled yet.
  */
-export function loadOfferings(): LectureOfferings | null {
+export function loadOfferings(): LectureOfferings {
   return rawCatalogue().offerings
 }
 
-/** Lectures for one degree, matched on the catalogue key (`catalogue` field). */
-export function lecturesForDegree(degree: string): Lecture[] {
-  const offerings = loadOfferings()
-  if (!offerings) return []
-  return offerings.colleges.flatMap((college) =>
+/** Newest crawled semester (highest term code), or null. */
+export function latestOfferings(): SemesterOfferings | null {
+  const codes = Object.keys(loadOfferings()).sort()
+  const code = codes.at(-1)
+  return code ? loadOfferings()[code] : null
+}
+
+/**
+ * Lectures for one degree, matched on the catalogue key (`catalogue` field),
+ * in the given semester or the newest crawled one.
+ */
+export function lecturesForDegree(degree: string, termCode?: string): Lecture[] {
+  const semester = termCode ? loadOfferings()[termCode] : latestOfferings()
+  if (!semester) return []
+  return semester.colleges.flatMap((college) =>
     college.departments
       .filter((dept) => dept.catalogue === degree)
       .flatMap((dept) => dept.lectures),
