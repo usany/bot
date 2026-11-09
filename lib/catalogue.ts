@@ -134,15 +134,30 @@ export function latestOfferings(): SemesterOfferings | null {
 }
 
 /**
+ * Degrees whose courses the registrar publishes under a single merged
+ * department, so the crawled row has `catalogue: null`. Maps a canonical
+ * degree to the merged department's registration code.
+ */
+const MERGED_DEPARTMENT_CODES: Record<string, readonly string[]> = {
+  '소재·발광소자학': ['A11136'], // merged into 미래정보디스플레이학부
+  '구동소자·시스템학': ['A11136'],
+}
+
+/**
  * Lectures for one degree, matched on the catalogue key (`catalogue` field),
  * in the given semester or the newest crawled one.
  */
 export function lecturesForDegree(degree: string, termCode?: string): Lecture[] {
   const semester = termCode ? loadOfferings()[termCode] : latestOfferings()
   if (!semester) return []
+  const mergedCodes = MERGED_DEPARTMENT_CODES[degree] ?? []
   return semester.colleges.flatMap((college) =>
     college.departments
-      .filter((dept) => dept.catalogue === degree)
+      .filter(
+        (dept) =>
+          dept.catalogue === degree ||
+          (dept.code != null && mergedCodes.includes(dept.code)),
+      )
       .flatMap((dept) => dept.lectures),
   )
 }

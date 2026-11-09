@@ -74,6 +74,17 @@ def _norm(s: str) -> str:
     return re.sub(r"\s+", " ", (s or "").lower().strip())
 
 
+# Some degrees in colleges.json are now published by the registration system
+# under a single merged department, so the crawled row has `catalogue: null`
+# (it cannot be matched back to one catalogue name). Map each of those
+# catalogue degrees to the merged department's registration `code` so their
+# lectures are still attributed to them.
+_MERGED_DEPARTMENT_CODES: dict[str, set[str]] = {
+    "소재·발광소자학": {"A11136"},  # merged into 미래정보디스플레이학부
+    "구동소자·시스템학": {"A11136"},
+}
+
+
 # ---------------------------------------------------------------------------
 # Catalogue data — read from colleges.json (single source of truth).
 # ---------------------------------------------------------------------------
@@ -602,6 +613,7 @@ def get_lectures(
         codes = sorted(offerings.keys(), reverse=True)
 
     semesters: list[dict[str, Any]] = []
+    extra_codes = _MERGED_DEPARTMENT_CODES.get(canonical, set())
     for code in codes:
         sem = offerings[code]
         legend = sem.get("fieldGbLegend") or {}
@@ -609,7 +621,7 @@ def get_lectures(
         seen: set[tuple[Any, ...]] = set()
         for college in sem.get("colleges", []):
             for dept in college.get("departments", []):
-                if dept.get("catalogue") != canonical:
+                if dept.get("catalogue") != canonical and dept.get("code") not in extra_codes:
                     continue
                 for lec in dept.get("lectures", []):
                     key = (
