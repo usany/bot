@@ -16,7 +16,7 @@ export default function Page() {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
-      text: 'Hello! How can I help you today?',
+      text: 'Welcome! How can I help you today?',
       sender: 'bot',
       timestamp: new Date(),
     },
