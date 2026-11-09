@@ -23,8 +23,8 @@
  * fresh session.
  *
  * Usage:
- *   node scripts/crawl-lectures.ts                 # current semester
- *   node scripts/crawl-lectures.ts --previous      # one semester back
+ *   node scripts/crawl-lectures.ts                 # current + previous semester
+ *   node scripts/crawl-lectures.ts --previous      # the two semesters before
  *   node scripts/crawl-lectures.ts --year 2026 --term 20
  *   node scripts/crawl-lectures.ts --out other.json
  *
@@ -92,16 +92,31 @@ function parseArgs(argv: string[]): Args {
 	return args;
 }
 
-/** Current Korean semester: Mar–Aug -> term 10, otherwise term 20. */
+/**
+ * The Korean semester a calendar month belongs to: 1학기 runs Mar–Aug (summer
+ * session included), 2학기 Sep–Dec, and Jan–Feb still belongs to the previous
+ * year's 2학기.
+ */
+function semesterFor(
+	year: number,
+	month: number,
+): { year: number; term: number } {
+	if (month >= 3 && month <= 8) return { year, term: 10 };
+	if (month >= 9) return { year, term: 20 };
+	return { year: year - 1, term: 20 };
+}
+
+/** Current Korean semester, in Seoul time. */
 function currentSemester(): { year: number; term: number } {
 	const now = new Date();
-	const month = Number(
-		new Intl.DateTimeFormat("en-US", {
-			timeZone: "Asia/Seoul",
-			month: "numeric",
-		}).format(now),
-	);
-	return { year: now.getFullYear(), term: month >= 3 && month <= 8 ? 10 : 20 };
+	const part = (options: Intl.DateTimeFormatOptions): number =>
+		Number(
+			new Intl.DateTimeFormat("en-US", {
+				timeZone: "Asia/Seoul",
+				...options,
+			}).format(now),
+		);
+	return semesterFor(part({ year: "numeric" }), part({ month: "numeric" }));
 }
 
 /**
@@ -127,6 +142,23 @@ function previousSemester(
 		default:
 			throw new Error(`unknown term: ${term}`);
 	}
+}
+
+/**
+ * Semesters a run should crawl, starting from the resolved current semester:
+ * without `--term` that is the current semester plus the previous one, and
+ * `--previous` steps every target one semester further back.
+ */
+function semesterTargets(
+	current: { year: number; term: number },
+	options: { single: boolean; previous: boolean },
+): { year: number; term: number }[] {
+	const base = options.single
+		? [current]
+		: [current, previousSemester(current.year, current.term)];
+	return options.previous
+		? base.map((t) => previousSemester(t.year, t.term))
+		: base;
 }
 
 // ------------------------------------------------------------------ network
@@ -358,9 +390,6 @@ interface CollegeResult {
 	departments: DepartmentResult[];
 }
 
-/** Regular semesters crawled when `--term` is not given: 1학기 and 2학기. */
-const DEFAULT_TERMS = [10, 20];
-
 /** The timetable body for one semester. */
 interface SemesterOfferings {
 	source: string;
@@ -589,14 +618,22 @@ async function main(): Promise<void> {
 			"usage: node scripts/crawl-lectures.ts [--year Y] [--term 10|20|15|25] [--previous] [--out colleges.json]",
 		);
 		console.log(
-			"       without --term both regular semesters (10 and 20) are crawled",
+			"       without --term the current semester and the previous one are crawled",
 		);
 		return;
 	}
 
-	// Both regular semesters by default; `--term` narrows the run to one.
-	const baseYear = args.year ?? currentSemester().year;
-	const terms = args.term === null ? DEFAULT_TERMS : [args.term];
+	const fallback = currentSemester();
+	const current = {
+		year: args.year ?? fallback.year,
+		term: args.term ?? fallback.term,
+	};
+	// Default: current semester + previous semester (during 2026-2학기 that is
+	// 202620 + 202610); `--term` narrows the run to a single semester.
+	const targets = semesterTargets(current, {
+		single: args.term !== null,
+		previous: args.previous,
+	});
 
 	const catalogue = JSON.parse(
 		await readFile(join(ROOT, "colleges.json"), "utf8"),
@@ -611,12 +648,7 @@ async function main(): Promise<void> {
 	const offerings = existingOfferings(existing);
 
 	let crawled = 0;
-	for (const term of terms) {
-		// --previous shifts one semester back: 1학기 -> last year's 2학기,
-		// 2학기 -> this year's 1학기, so the default run covers Y-1 2학기 and Y 1학기.
-		const target = args.previous
-			? previousSemester(baseYear, term)
-			: { year: baseYear, term };
+	for (const target of targets) {
 		try {
 			const semester = await crawlSemester({
 				...target,
@@ -628,7 +660,7 @@ async function main(): Promise<void> {
 			crawled++;
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
-			if (terms.length === 1) throw error;
+			if (targets.length === 1) throw error;
 			console.warn(`! skipped ${target.year}${target.term}: ${message}`);
 		}
 	}

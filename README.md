@@ -61,19 +61,23 @@ colleges in `colleges.json` and merges it into `colleges.json` under the
 top-level `offerings` key. There is no separate timetable file.
 
 ```sh
-pnpm crawl:lectures                       # both 1학기 and 2학기, merges into colleges.json
-pnpm crawl:lectures --term 20             # only 2학기
-pnpm crawl:lectures --previous            # both semesters, one semester back
+pnpm crawl:lectures                       # current + previous semester
+pnpm crawl:lectures --term 20             # only the current year's 2학기
+pnpm crawl:lectures --previous            # the two semesters before the current one
 node scripts/crawl-lectures.ts --year 2026 --term 20
 node scripts/crawl-lectures.ts --out offerings-2026-1.json   # scratch file
 ```
 
-Without `--term` the run crawls **both regular semesters** (`10` and `20`) of the
-resolved year and stores them side by side, keyed by term code. Pass `--term` to
-crawl a single one: `10` (1학기), `20` (2학기), `15` (여름계절) or `25`
-(겨울계절).
+Without `--term` the run crawls the **current semester and the previous one**,
+keyed by term code. The current semester is resolved in Seoul time: 1학기 is
+Mar–Aug (`10`), 2학기 is Sep–Dec (`20`), and Jan–Feb still counts as the previous
+year's 2학기. So the default run during 2026-2학기 fetches `202620` + `202610`,
+and during 2026-1학기 fetches `202610` + `202520`.
 
-`--previous` (or `-p`) steps each semester one step back — 1학기 becomes the
+Pass `--term` to crawl a single semester instead: `10` (1학기), `20` (2학기),
+`15` (여름계절) or `25` (겨울계절) — combined with `--year` for a past year.
+
+`--previous` (or `-p`) steps each target one semester back — 1학기 becomes the
 previous year's 2학기, 2학기 becomes the same year's 1학기:
 
 | given | previous |
@@ -83,9 +87,9 @@ previous year's 2학기, 2학기 becomes the same year's 1학기:
 | 2026 여름계절 (`15`) | 2026 1학기 (`10`) |
 | 2026 겨울계절 (`25`) | 2026 2학기 (`20`) |
 
-So the default run covers `202610` and `202620`, while `--previous` covers
-`202520` and `202610`. It composes with `--year`/`--term` (`--year 2026 --term
-10 --previous` → 2025-2).
+With the default (two semesters) it shifts both, so during 2026-2학기
+`--previous` covers `202610` + `202520`. It composes with `--year`/`--term`
+(`--year 2026 --term 10 --previous` → 2025-2).
 
 Merge semantics: `offerings` is keyed by term code, so a run replaces only the
 semesters it crawled and keeps any other semester already in the file. If one of
