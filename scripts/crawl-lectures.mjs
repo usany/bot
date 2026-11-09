@@ -222,25 +222,12 @@ function catalogueNameFor(catalogue, collegeName, major) {
 }
 
 const compact = (row) => ({
-	lectureCd: row.lecture_cd,
-	lectureCdDisp: row.lecture_cd_disp,
-	name: row.subjt_name,
 	subjectCd: row.subjt_cd,
-	classCd: row.class_cd,
-	professor: row.teach_na,
+	name: row.subjt_name,
 	credits: Number.parseFloat(row.unit_num) || null,
-	grade: Number(row.lect_grade) || null,
-	timetable: String(row.timetable ?? "")
-		.replace(/<BR>/gi, " / ")
-		.trim(),
 	fieldGb: row.field_gb,
-	language: row.eng_yn_nm || null,
 	campus: row.campus_nm,
-	capacity: row.comm_limit ?? row.asign_pcnt ?? null,
-	applied: row.all_apply ?? null,
-	remaining: row.remain ?? null,
 	note: String(row.bigo ?? "").trim() || null,
-	haksuCode: row.haksu_code || null,
 });
 
 // ---------------------------------------------------------------------- main
