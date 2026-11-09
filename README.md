@@ -48,10 +48,12 @@ Set `GROQ_KEY` (and optionally `GROQ_MODEL`), plus `MCP_SERVER_URL`, in `.env`.
 ## Study recommendations
 
 When the user asks what to study (e.g. "what should I study?", "recommend a
-major"), the chat calls the `recommend_study` MCP tool (`mcp/server.py`), which
+major"), the chat calls the `search_catalogue` MCP tool (`mcp/server.py`), which
 matches the user's interest against `colleges.json` and returns ranked
 departments with their credit requirements. The Next.js server feeds that
-result to the model as system context so it can answer in natural language.
+result to the model as system context and instructs it to recommend at least
+three degrees (or all matches if fewer than three exist) so it can answer in
+natural language.
 
 ## Lecture timetable (`offerings` in `colleges.json`)
 
