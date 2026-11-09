@@ -273,7 +273,8 @@ interface LectureRow {
 	lecture_cd: string;
 	subjt_cd: string;
 	subjt_name: string;
-	unit_num: string | null;
+  unit_num: string | null;
+  lect_grade: string | null;
 	field_gb: string;
 	campus_nm: string;
 	bigo?: string | null;
@@ -356,7 +357,8 @@ function catalogueNameFor(
 interface Lecture {
 	subjectCd: string;
 	name: string;
-	credits: number | null;
+  credits: number | null;
+  grade: number | null;
 	fieldGb: string;
 	campus: string;
 	note: string | null;
@@ -366,7 +368,8 @@ const compact = (row: LectureRow): Lecture => ({
 	subjectCd: row.subjt_cd,
 	name: row.subjt_name,
 	credits: Number.parseFloat(String(row.unit_num)) || null,
-	fieldGb: row.field_gb,
+	grade: Number(row.lect_grade) || null,
+  fieldGb: row.field_gb,
 	campus: row.campus_nm,
 	note: String(row.bigo ?? "").trim() || null,
 });
