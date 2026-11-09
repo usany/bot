@@ -23,9 +23,9 @@
  * fresh session.
  *
  * Usage:
- *   node scripts/crawl-lectures.mjs                 # current semester
- *   node scripts/crawl-lectures.mjs --year 2026 --term 20
- *   node scripts/crawl-lectures.mjs --out lectures.json
+ *   node scripts/crawl-lectures.ts                 # current semester
+ *   node scripts/crawl-lectures.ts --year 2026 --term 20
+ *   node scripts/crawl-lectures.ts --out lectures.json
  */
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -35,12 +35,25 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const BASE = "https://sugang.khu.ac.kr";
 const UA =
 	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
-const TERM_LABEL = { 10: "1학기", 20: "2학기", 15: "여름계절", 25: "겨울계절" };
+const TERM_LABEL: Record<number, string> = {
+	10: "1학기",
+	20: "2학기",
+	15: "여름계절",
+	25: "겨울계절",
+};
 
 // ---------------------------------------------------------------- arguments
 
-function parseArgs(argv) {
-	const args = { year: null, term: null, out: "lectures.json", delay: 250 };
+interface Args {
+	year: number | null;
+	term: number | null;
+	out: string;
+	delay: number;
+	help?: boolean;
+}
+
+function parseArgs(argv: string[]): Args {
+	const args: Args = { year: null, term: null, out: "lectures.json", delay: 250 };
 	for (let i = 0; i < argv.length; i++) {
 		const key = argv[i];
 		const next = argv[i + 1];
@@ -66,7 +79,7 @@ function parseArgs(argv) {
 }
 
 /** Current Korean semester: Mar–Aug -> term 10, otherwise term 20. */
-function currentSemester() {
+function currentSemester(): { year: number; term: number } {
 	const now = new Date();
 	const month = Number(
 		new Intl.DateTimeFormat("en-US", {
@@ -79,11 +92,12 @@ function currentSemester() {
 
 // ------------------------------------------------------------------ network
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const sleep = (ms: number): Promise<void> =>
+	new Promise((resolve) => setTimeout(resolve, ms));
 
 /** `fake` is the site's cache-buster: "Fri Nov 06 20:13:59 KST 2026". */
-function fakeParam() {
-	const parts = Object.fromEntries(
+function fakeParam(): string {
+	const parts: Record<string, string> = Object.fromEntries(
 		new Intl.DateTimeFormat("en-US", {
 			timeZone: "Asia/Seoul",
 			weekday: "short",
@@ -104,11 +118,12 @@ function fakeParam() {
 }
 
 class Session {
-	constructor() {
-		this.cookies = new Map();
-	}
+	private cookies = new Map<string, string>();
 
-	async get(path, referer) {
+	async get(
+		path: string,
+		referer?: string,
+	): Promise<{ status: number; body: string }> {
 		const url = path.startsWith("http") ? path : BASE + path;
 		const res = await fetch(url, {
 			headers: {
@@ -134,7 +149,7 @@ class Session {
 }
 
 /** Fresh session primed exactly like a browser walking to 종합시간표 조회. */
-async function openSession() {
+async function openSession(): Promise<Session> {
 	const session = new Session();
 	await session.get("/");
 	await session.get("/login?attribute=loginFrame&fake=1", `${BASE}/`);
@@ -147,23 +162,54 @@ async function openSession() {
 
 // ------------------------------------------------------------- site metadata
 
+interface CodeRow {
+	cd: string;
+	nm: string;
+	enm?: string;
+	dh?: string;
+	orgnz_outpt_ord?: string | null;
+	orgnz_lvl_se_code?: string | null;
+}
+
+interface CodeData {
+	[key: string]: { rows: CodeRow[] } | undefined;
+}
+
 /** data_<year>.js assigns `var daehak_<year><term> = {...}` / `major_...`. */
-async function loadCodeData(year) {
+async function loadCodeData(year: number): Promise<CodeData> {
 	const { body } = await new Session().get(`/resources/data/data_${year}.js`);
 	if (!body.includes("daehak_"))
 		throw new Error(`no college data for ${year} (data_${year}.js)`);
-	const ctx = {};
+	const ctx: Record<string, unknown> = {};
 	// The file is plain `var x = {...};` assignments — evaluate into ctx.
 	new Function(
 		"ctx",
 		body.replace(/var\s+(daehak_\d+|major_\d+)\s*=/g, "ctx.$1 =") + "\n",
 	)(ctx);
-	return ctx;
+	return ctx as unknown as CodeData;
 }
 
 // ------------------------------------------------------------------ scraping
 
-async function fetchLectures({ year, term, majorCd }) {
+interface LectureRow {
+	lecture_cd: string;
+	subjt_cd: string;
+	subjt_name: string;
+	unit_num: string | null;
+	field_gb: string;
+	campus_nm: string;
+	bigo?: string | null;
+}
+
+async function fetchLectures({
+	year,
+	term,
+	majorCd,
+}: {
+	year: number;
+	term: number;
+	majorCd: string;
+}): Promise<LectureRow[]> {
 	const url =
 		`/core?attribute=lectListJson&lang=ko&loginYn=N&fake=${fakeParam()}` +
 		`&menu=1&search_div=E&p_graduate=H&p_day=&p_time=&p_teach=&p_subjt=` +
@@ -174,7 +220,7 @@ async function fetchLectures({ year, term, majorCd }) {
 		const session = await openSession();
 		const { status, body } = await session.get(url, `${BASE}/`);
 		if (status === 200 && body.trim().startsWith("{")) {
-			const data = JSON.parse(body);
+			const data = JSON.parse(body) as { rows?: LectureRow[] };
 			if (Array.isArray(data.rows)) return data.rows;
 		}
 		await sleep(500 * attempt);
@@ -186,14 +232,14 @@ async function fetchLectures({ year, term, majorCd }) {
 
 // -------------------------------------------------------------- name matching
 
-const squash = (s) =>
+const squash = (s: string): string =>
 	s
 		.normalize("NFKC")
 		.replace(/[·․.,&*()\s]/g, "")
 		.replace(/(학부|학과|전공)$/u, "");
 
 /** colleges.json names that the registration system now lists differently. */
-const RENAMES = { 회계·세무학과: "회계학과" };
+const RENAMES: Record<string, string> = { "회계·세무학과": "회계학과" };
 
 /**
  * Match a colleges.json department to a site department row. The site name is
@@ -201,7 +247,7 @@ const RENAMES = { 회계·세무학과: "회계학과" };
  * 국제통상학"), so compare the last segment only and require a prefix match so
  * that "경영학" does not swallow "빅데이터응용학".
  */
-function matchDepartment(catalogueName, major) {
+function matchDepartment(catalogueName: string, major: CodeRow): number {
 	const want = squash(catalogueName);
 	const last = squash(major.nm.split(/\s+/).at(-1) ?? "");
 	if (!want || !last) return 0;
@@ -211,8 +257,16 @@ function matchDepartment(catalogueName, major) {
 	return 0;
 }
 
-function catalogueNameFor(catalogue, collegeName, major) {
-	let best = { name: null, score: 0 };
+interface Catalogue {
+	departments: Record<string, { college: string }>;
+}
+
+function catalogueNameFor(
+	catalogue: Catalogue,
+	collegeName: string,
+	major: CodeRow,
+): string | null {
+	let best = { name: null as string | null, score: 0 };
 	for (const [name, meta] of Object.entries(catalogue.departments)) {
 		if (meta.college !== collegeName) continue;
 		const score = matchDepartment(RENAMES[name] ?? name, major);
@@ -221,10 +275,19 @@ function catalogueNameFor(catalogue, collegeName, major) {
 	return best.score ? best.name : null;
 }
 
-const compact = (row) => ({
+interface Lecture {
+	subjectCd: string;
+	name: string;
+	credits: number | null;
+	fieldGb: string;
+	campus: string;
+	note: string | null;
+}
+
+const compact = (row: LectureRow): Lecture => ({
 	subjectCd: row.subjt_cd,
 	name: row.subjt_name,
-	credits: Number.parseFloat(row.unit_num) || null,
+	credits: Number.parseFloat(String(row.unit_num)) || null,
 	fieldGb: row.field_gb,
 	campus: row.campus_nm,
 	note: String(row.bigo ?? "").trim() || null,
@@ -232,11 +295,28 @@ const compact = (row) => ({
 
 // ---------------------------------------------------------------------- main
 
-async function main() {
+interface DepartmentResult {
+	name: string;
+	code: string;
+	level: number | null;
+	catalogue: string | null;
+	lectureCount: number;
+	lectures: Lecture[];
+}
+
+interface CollegeResult {
+	college: string;
+	collegeKo: string;
+	collegeCd: string;
+	lectureCount: number;
+	departments: DepartmentResult[];
+}
+
+async function main(): Promise<void> {
 	const args = parseArgs(process.argv.slice(2));
 	if (args.help) {
 		console.log(
-			"usage: node scripts/crawl-lectures.mjs [--year Y] [--term 10|20|15|25] [--out file]",
+			"usage: node scripts/crawl-lectures.ts [--year Y] [--term 10|20|15|25] [--out file]",
 		);
 		return;
 	}
@@ -246,7 +326,7 @@ async function main() {
 
 	const catalogue = JSON.parse(
 		await readFile(join(ROOT, "colleges.json"), "utf8"),
-	);
+	) as Catalogue;
 	const colleges = [
 		...new Set(Object.values(catalogue.departments).map((d) => d.college)),
 	];
@@ -288,7 +368,7 @@ async function main() {
 			27: "계절학기전공기초",
 			"08": "일반선택",
 		},
-		colleges: [],
+		colleges: [] as CollegeResult[],
 	};
 
 	for (const collegeName of colleges) {
@@ -307,15 +387,16 @@ async function main() {
 					(a.orgnz_lvl_se_code ?? "").localeCompare(b.orgnz_lvl_se_code ?? ""),
 			);
 
-		const seen = new Set();
-		const departments = [];
+		const seen = new Set<string>();
+		const departments: DepartmentResult[] = [];
 
 		for (const dept of deptRows) {
-			let rows;
+			let rows: LectureRow[];
 			try {
 				rows = await fetchLectures({ year, term, majorCd: dept.cd });
 			} catch (error) {
-				console.warn(`! ${collegeName} / ${dept.nm}: ${error.message}`);
+				const message = error instanceof Error ? error.message : String(error);
+				console.warn(`! ${collegeName} / ${dept.nm}: ${message}`);
 				rows = [];
 			}
 			const lectures = rows.filter((r) => !seen.has(r.lecture_cd));
@@ -340,7 +421,7 @@ async function main() {
 		}
 
 		result.colleges.push({
-			college: college.enm,
+			college: college.enm ?? college.nm,
 			collegeKo: college.nm,
 			collegeCd: college.cd,
 			lectureCount: seen.size,
@@ -354,7 +435,9 @@ async function main() {
 
 	const matched = new Set(
 		result.colleges.flatMap((c) =>
-			c.departments.map((d) => d.catalogue).filter(Boolean),
+			c.departments
+				.map((d) => d.catalogue)
+				.filter((v): v is string => Boolean(v)),
 		),
 	);
 	const unmatched = Object.keys(catalogue.departments).filter(
