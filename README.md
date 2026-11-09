@@ -7,7 +7,7 @@ recommendations served by a separate Python MCP server.
 Browser ──▶ Next.js /api/chat ──▶ Groq
                          │
                          └──▶ MCP client ──▶ Python MCP server (recommend_study)
-                                                  └──▶ colleges.json
+                                                  └──▶ colleges.json (+ offerings)
 ```
 
 The browser only talks to the Next.js API routes. The model is reached
@@ -53,19 +53,25 @@ matches the user's interest against `colleges.json` and returns ranked
 departments with their credit requirements. The Next.js server feeds that
 result to the model as system context so it can answer in natural language.
 
-## Lecture timetable (`lectures.json`)
+## Lecture timetable (`offerings` in `colleges.json`)
 
 `scripts/crawl-lectures.ts` pulls the course timetable from the Kyung Hee
 registration system (`https://sugang.khu.ac.kr`, 종합시간표 조회) for the
-colleges in `colleges.json` and writes `lectures.json` at the repo root.
+colleges in `colleges.json` and merges it into `colleges.json` under the
+top-level `offerings` key. There is no separate timetable file.
 
 ```sh
-pnpm crawl:lectures                       # current semester
+pnpm crawl:lectures                       # current semester, merges into colleges.json
 node scripts/crawl-lectures.ts --year 2026 --term 20
-node scripts/crawl-lectures.ts --out lectures-2026-1.json
+node scripts/crawl-lectures.ts --out offerings-2026-1.json   # scratch file
 ```
 
 `--term` is `10` (1학기), `20` (2학기), `15` (여름계절) or `25` (겨울계절).
+
+The merge is textual: only the trailing `offerings` member is rewritten, so the
+hand-curated `collegeAliases` and `departments` sections keep their formatting.
+`lib/catalogue.ts` exposes the result through `loadOfferings()` /
+`lecturesForDegree()`.
 
 What it does:
 
@@ -84,27 +90,34 @@ What it does:
    the site has since renamed are handled by `RENAMES`, and anything still
    unmatched is reported as `! not offered this term`.
 
-Output shape:
+`colleges.json` shape:
 
 ```jsonc
 {
-  "year": 2026, "term": 20, "semester": "2026-2학기",
-  "colleges": [
-    { "college": "College of Politics & Economics", "collegeKo": "정경대학",
-      "collegeCd": "A00422", "lectureCount": 202,
-      "departments": [
-        { "name": "경제학과 경제학", "code": "A00430", "catalogue": "경제학과",
-          "lectureCount": 39,
-          "lectures": [
-            { "lectureCd": "ECON306400", "lectureCdDisp": "ECON3064-00",
-              "name": "부동산경제분석", "professor": "민인식", "credits": 3,
-              "grade": 3, "timetable": "월 12:00-13:15 (정301) / ...",
-              "fieldGb": "05", "campus": "서울", "capacity": 78,
-              "applied": 77, "remaining": 1, "note": null }
-          ] }
-      ] }
-  ]
+  "collegeAliases": { "문과대학": ["liberal arts", "humanities"] },
+  "departments": {
+    "경제학과": { "college": "정경대학", "url": "https://econ.khu.ac.kr",
+                 "credits1": 39, "credits2": 21, "aliases": ["economics"] }
+  },
+  "offerings": {
+    "source": "https://sugang.khu.ac.kr/core?attribute=lectListJson",
+    "year": 2026, "term": 20, "termCode": "202620",
+    "semester": "2026-2학기", "fetchedAt": "2026-11-09T09:47:02.986Z",
+    "fieldGbLegend": { "05": { "ko": "전공선택", "en": "Elective Major Studies" } },
+    "colleges": [
+      { "college": "College of Politics & Economics", "collegeKo": "정경대학",
+        "collegeCd": "A00422", "lectureCount": 202,
+        "departments": [
+          { "name": "경제학과 경제학", "code": "A00430", "catalogue": "경제학과",
+            "lectureCount": 39,
+            "lectures": [
+              { "subjectCd": "ECON3064", "name": "부동산경제분석",
+                "credits": 3, "fieldGb": "05", "campus": "서울", "note": null }
+            ] }
+        ] }
+    ]
+  }
 }
 ```
 
-`fieldGb` codes are expanded in `fieldGbLegend`.
+`fieldGb` codes are expanded in `offerings.fieldGbLegend` (Korean + English).

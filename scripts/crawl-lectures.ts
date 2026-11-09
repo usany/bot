@@ -25,7 +25,11 @@
  * Usage:
  *   node scripts/crawl-lectures.ts                 # current semester
  *   node scripts/crawl-lectures.ts --year 2026 --term 20
- *   node scripts/crawl-lectures.ts --out lectures.json
+ *   node scripts/crawl-lectures.ts --out other.json
+ *
+ * The timetable is merged under the `offerings` key of the target file, so the
+ * default run rewrites only that block of colleges.json and leaves the curated
+ * `collegeAliases` / `departments` sections untouched.
  */
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -53,7 +57,7 @@ interface Args {
 }
 
 function parseArgs(argv: string[]): Args {
-	const args: Args = { year: null, term: null, out: "lectures.json", delay: 250 };
+	const args: Args = { year: null, term: null, out: "colleges.json", delay: 250 };
 	for (let i = 0; i < argv.length; i++) {
 		const key = argv[i];
 		const next = argv[i + 1];
@@ -312,11 +316,80 @@ interface CollegeResult {
 	departments: DepartmentResult[];
 }
 
+/** The timetable body, stored under `offerings` in the merged document. */
+interface Offerings {
+	source: string;
+	year: number;
+	term: number;
+	termCode: string;
+	semester: string;
+	fetchedAt: string;
+	fieldGbLegend: Record<string, { ko: string; en: string }>;
+	colleges: CollegeResult[];
+}
+
+// ------------------------------------------------------------------- writing
+
+const readTextIfExists = async (path: string): Promise<string | null> => {
+	try {
+		return await readFile(path, "utf8");
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+		throw error;
+	}
+};
+
+/** Re-indent a pretty-printed JSON block so it sits at column `n`. */
+const indent = (text: string, n: number): string =>
+	text.replace(/\n/g, `\n${" ".repeat(n)}`);
+
+/** Old `lectures.json` shape: timetable fields at the top level. */
+function isStandaloneTimetable(text: string): boolean {
+	const parsed = JSON.parse(text) as Record<string, unknown>;
+	return Array.isArray(parsed.colleges) && !("departments" in parsed);
+}
+
+/**
+ * Merge the timetable into an existing document (`colleges.json` by default)
+ * without reflowing it: the curated `collegeAliases` / `departments` sections
+ * keep their hand-written formatting and only the trailing `offerings` member
+ * is rewritten. A previous standalone timetable file is replaced wholesale.
+ */
+function mergeOfferings(existing: string | null, offerings: Offerings): string {
+	const block = indent(JSON.stringify(offerings, null, 2), 2);
+	const text = existing?.trimEnd() ? existing.trimEnd() : null;
+
+	if (!text || isStandaloneTimetable(text)) {
+		return `{\n  "offerings": ${block}\n}\n`;
+	}
+	if (!text.endsWith("}")) {
+		throw new Error("cannot merge: target file is not a JSON object");
+	}
+
+	let prefix = text.slice(0, -1);
+	const previous = /\n[ \t]*"offerings"[ \t]*:/.exec(prefix);
+	if (previous) prefix = prefix.slice(0, previous.index);
+	prefix = prefix.trimEnd();
+	if (prefix.endsWith(",")) prefix = prefix.slice(0, -1);
+
+	const separator = prefix.endsWith("{") ? "" : ",";
+	const merged = `${prefix}${separator}\n  "offerings": ${block}\n}\n`;
+
+	// Fail loudly rather than corrupt a curated file.
+	const parsed = JSON.parse(merged) as Record<string, unknown>;
+	for (const key of Object.keys(parsed)) {
+		if (!["collegeAliases", "departments", "offerings"].includes(key)) {
+			console.warn(`! merged file keeps unknown top-level key: ${key}`);
+		}
+	}
+	return merged;
+}
+
 async function main(): Promise<void> {
 	const args = parseArgs(process.argv.slice(2));
 	if (args.help) {
 		console.log(
-			"usage: node scripts/crawl-lectures.ts [--year Y] [--term 10|20|15|25] [--out file]",
+			"usage: node scripts/crawl-lectures.ts [--year Y] [--term 10|20|15|25] [--out colleges.json]",
 		);
 		return;
 	}
@@ -347,7 +420,7 @@ async function main(): Promise<void> {
 		`sugang.khu.ac.kr — ${year}-${TERM_LABEL[term] ?? term} (${year}${term})`,
 	);
 
-	const result = {
+	const result: Offerings = {
 		source: `${BASE}/core?attribute=lectListJson`,
 		year,
 		term,
@@ -431,7 +504,10 @@ async function main(): Promise<void> {
 
 	const total = result.colleges.reduce((sum, c) => sum + c.lectureCount, 0);
 	const outPath = join(ROOT, args.out);
-	await writeFile(outPath, `${JSON.stringify(result, null, 2)}\n`);
+	await writeFile(
+		outPath,
+		mergeOfferings(await readTextIfExists(outPath), result),
+	);
 
 	const matched = new Set(
 		result.colleges.flatMap((c) =>

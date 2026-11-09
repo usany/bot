@@ -7,6 +7,10 @@ import { join } from 'node:path'
  * on the Next.js server. This is the same source of truth the Python MCP server
  * loads, but surfaced here so the LLM can resolve a user's phrasing (in any
  * language) to the exact `degree` key the MCP tool expects.
+ *
+ * The same file also carries the crawled timetable under `offerings`, so a
+ * single read gives both the degree metadata and the current semester's
+ * lectures.
  */
 
 export interface CatalogueEntry {
@@ -29,16 +33,68 @@ interface RawMeta {
 interface RawCatalogue {
   collegeAliases?: Record<string, string[]>
   departments?: Record<string, RawMeta>
+  offerings?: LectureOfferings
+}
+
+/** Module-qualified `fieldGb` code -> names, from `offerings.fieldGbLegend`. */
+export interface FieldGbLabel {
+  ko: string
+  en: string
+}
+
+export interface Lecture {
+  subjectCd: string
+  name: string
+  credits: number | null
+  fieldGb: string
+  campus: string
+  note: string | null
+}
+
+export interface OfferedDepartment {
+  name: string
+  code: string
+  level: number | null
+  catalogue: string | null
+  lectureCount: number
+  lectures: Lecture[]
+}
+
+export interface OfferedCollege {
+  college: string
+  collegeKo: string
+  collegeCd: string
+  lectureCount: number
+  departments: OfferedDepartment[]
+}
+
+/** The crawled semester timetable (`scripts/crawl-lectures.ts`). */
+export interface LectureOfferings {
+  source: string
+  year: number
+  term: number
+  termCode: string
+  semester: string
+  fetchedAt: string
+  fieldGbLegend: Record<string, FieldGbLabel>
+  colleges: OfferedCollege[]
 }
 
 /**
  * Load and cache the catalogue. `colleges.json` is the single source of truth
  * for departments plus their English/synonym aliases and per-college aliases.
  */
-let _cache: { entries: CatalogueEntry[]; collegeAliases: Record<string, string[]> } | null =
-  null
+let _cache: {
+  entries: CatalogueEntry[]
+  collegeAliases: Record<string, string[]>
+  offerings: LectureOfferings | null
+} | null = null
 
-function rawCatalogue(): { entries: CatalogueEntry[]; collegeAliases: Record<string, string[]> } {
+function rawCatalogue(): {
+  entries: CatalogueEntry[]
+  collegeAliases: Record<string, string[]>
+  offerings: LectureOfferings | null
+} {
   if (_cache) return _cache
   const path = join(process.cwd(), 'colleges.json')
   const raw = JSON.parse(readFileSync(path, 'utf-8')) as RawCatalogue
@@ -51,7 +107,11 @@ function rawCatalogue(): { entries: CatalogueEntry[]; collegeAliases: Record<str
     microCredits: meta.credits2 ?? null,
     aliases: meta.aliases ?? [],
   }))
-  _cache = { entries, collegeAliases: raw.collegeAliases ?? {} }
+  _cache = {
+    entries,
+    collegeAliases: raw.collegeAliases ?? {},
+    offerings: raw.offerings ?? null,
+  }
   return _cache
 }
 
@@ -62,6 +122,25 @@ export function loadCatalogue(): CatalogueEntry[] {
 /** College name -> aliases, from the shared colleges.json. */
 export function collegeAliases(): Record<string, string[]> {
   return rawCatalogue().collegeAliases
+}
+
+/**
+ * The semester timetable merged into colleges.json, or null when it has not
+ * been crawled yet. `fieldGb` labels live in `offerings.fieldGbLegend`.
+ */
+export function loadOfferings(): LectureOfferings | null {
+  return rawCatalogue().offerings
+}
+
+/** Lectures for one degree, matched on the catalogue key (`catalogue` field). */
+export function lecturesForDegree(degree: string): Lecture[] {
+  const offerings = loadOfferings()
+  if (!offerings) return []
+  return offerings.colleges.flatMap((college) =>
+    college.departments
+      .filter((dept) => dept.catalogue === degree)
+      .flatMap((dept) => dept.lectures),
+  )
 }
 
 /**
