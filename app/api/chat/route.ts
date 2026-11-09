@@ -44,9 +44,6 @@ export async function POST(request: Request) {
     console.error('MCP tool call failed:', err)
   }
 
-  const emptySearch =
-    tool === 'search_catalogue' && context.trim() === '[]'
-
   const systemPrompt = !context
     ? undefined
     : tool === 'get_curriculum'
@@ -57,9 +54,7 @@ export async function POST(request: Request) {
         ? `You are a helpful assistant. The user asked about a specific degree/department. Use the details below (retrieved from the department's official homepage) to answer in natural language, in the same language the user wrote. Do not invent facts, requirements, or numbers beyond what is provided.\n\n${context}`
         : tool === 'get_catalogue'
           ? `You are a helpful assistant. The user asked for department details in general. Below is a directory of available departments with their colleges and official homepage URLs (retrieved from the college catalogue). Present it clearly in the same language the user wrote, and invite the user to name a specific department if they want its full introduction. Do not invent departments or facts beyond what is listed.\n\n${context}`
-          : emptySearch
-            ? `You are a helpful assistant. The user asked what to study, but no department in the catalogue closely matches their interest. Tell them so in the same language they wrote, and invite them to rephrase or ask for the full list of departments. Do not invent departments, majors, or credit numbers.\n\n${context}`
-            : `You are a helpful assistant. The user asked for a degree recommendation (what to study). Use the recommendations below (retrieved from the college catalogue) to answer in natural language, in the same language the user wrote. Recommend at least three degrees from the list, and briefly explain how each fits the user's interest. If the list has fewer than three degrees, recommend all of them and suggest the user broaden their interest. Do not invent degrees or credit numbers beyond what is listed.\n\n${context}`
+          : `You are a helpful assistant. The user asked for a degree recommendation (what to study). You have two pieces of catalogue context below: "Direct matches" (departments that directly match the stated interest, which may be empty or have fewer than three entries) and "Full catalogue" (every available department with its college and credit requirements). Recommend at least three degrees, in priority order. Lead with the direct matches when they fit, then fill the remaining spots up to at least three with related departments from the full catalogue. Briefly explain how each recommendation fits the user's interest. Answer in the same language the user wrote. Do not invent degrees, colleges, or credit numbers beyond what is listed.\n\n${context}`
 
   const messages: ChatMessage[] = [
     ...(systemPrompt ? [{ role: 'system' as const, content: systemPrompt }] : []),

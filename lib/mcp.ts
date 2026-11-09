@@ -209,5 +209,19 @@ export async function fetchCatalogueContext(
   const tool = gate.tool as CatalogueTool
   const args = buildToolArgs(tool, gate)
   const content = await callTool(tool, args)
+
+  // Degree recommendations may return only one or two direct matches, so also
+  // attach the full catalogue and let the answering model fill the shortfall
+  // with related departments (the chat prompt asks for at least three).
+  if (tool === 'search_catalogue') {
+    const full = await callTool('get_catalogue', {})
+    return {
+      tool,
+      content:
+        `Direct matches (best first):\n${content}\n\n` +
+        `Full catalogue (for related recommendations):\n${full}`,
+    }
+  }
+
   return { tool, content }
 }
