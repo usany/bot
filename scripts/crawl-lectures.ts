@@ -24,6 +24,7 @@
  *
  * Usage:
  *   node scripts/crawl-lectures.ts                 # current semester
+ *   node scripts/crawl-lectures.ts --previous      # one semester back
  *   node scripts/crawl-lectures.ts --year 2026 --term 20
  *   node scripts/crawl-lectures.ts --out other.json
  *
@@ -53,11 +54,18 @@ interface Args {
 	term: number | null;
 	out: string;
 	delay: number;
+	previous: boolean;
 	help?: boolean;
 }
 
 function parseArgs(argv: string[]): Args {
-	const args: Args = { year: null, term: null, out: "colleges.json", delay: 250 };
+	const args: Args = {
+		year: null,
+		term: null,
+		out: "colleges.json",
+		delay: 250,
+		previous: false,
+	};
 	for (let i = 0; i < argv.length; i++) {
 		const key = argv[i];
 		const next = argv[i + 1];
@@ -73,6 +81,8 @@ function parseArgs(argv: string[]): Args {
 		} else if (key === "--delay") {
 			args.delay = Number(next);
 			i++;
+		} else if (key === "--previous" || key === "-p") {
+			args.previous = true;
 		} else if (key === "--help" || key === "-h") {
 			args.help = true;
 		} else {
@@ -92,6 +102,31 @@ function currentSemester(): { year: number; term: number } {
 		}).format(now),
 	);
 	return { year: now.getFullYear(), term: month >= 3 && month <= 8 ? 10 : 20 };
+}
+
+/**
+ * The semester immediately before the given one:
+ *   1학기 (10)  -> previous year's 2학기 (20)
+ *   2학기 (20)  -> same year's 1학기 (10)
+ *   여름계절 (15) -> same year's 1학기 (10)
+ *   겨울계절 (25) -> same year's 2학기 (20)
+ */
+function previousSemester(
+	year: number,
+	term: number,
+): { year: number; term: number } {
+	switch (term) {
+		case 10:
+			return { year: year - 1, term: 20 };
+		case 20:
+			return { year, term: 10 };
+		case 15:
+			return { year, term: 10 };
+		case 25:
+			return { year, term: 20 };
+		default:
+			throw new Error(`unknown term: ${term}`);
+	}
 }
 
 // ------------------------------------------------------------------ network
@@ -389,13 +424,21 @@ async function main(): Promise<void> {
 	const args = parseArgs(process.argv.slice(2));
 	if (args.help) {
 		console.log(
-			"usage: node scripts/crawl-lectures.ts [--year Y] [--term 10|20|15|25] [--out colleges.json]",
+			"usage: node scripts/crawl-lectures.ts [--year Y] [--term 10|20|15|25] [--previous] [--out colleges.json]",
 		);
 		return;
 	}
 	const fallback = currentSemester();
-	const year = args.year ?? fallback.year;
-	const term = args.term ?? fallback.term;
+	const current = {
+		year: args.year ?? fallback.year,
+		term: args.term ?? fallback.term,
+	};
+	// --previous shifts one semester back: 1학기 -> last year's 2학기,
+	// 2학기 -> this year's 1학기.
+	const target = args.previous
+		? previousSemester(current.year, current.term)
+		: current;
+	const { year, term } = target;
 
 	const catalogue = JSON.parse(
 		await readFile(join(ROOT, "colleges.json"), "utf8"),
@@ -417,7 +460,8 @@ async function main(): Promise<void> {
 	}
 
 	console.log(
-		`sugang.khu.ac.kr — ${year}-${TERM_LABEL[term] ?? term} (${year}${term})`,
+		`sugang.khu.ac.kr — ${year}-${TERM_LABEL[term] ?? term} (${year}${term})` +
+			(args.previous ? " [previous semester]" : ""),
 	);
 
 	const result: Offerings = {

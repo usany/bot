@@ -62,11 +62,25 @@ top-level `offerings` key. There is no separate timetable file.
 
 ```sh
 pnpm crawl:lectures                       # current semester, merges into colleges.json
+pnpm crawl:lectures --previous            # one semester back
 node scripts/crawl-lectures.ts --year 2026 --term 20
 node scripts/crawl-lectures.ts --out offerings-2026-1.json   # scratch file
 ```
 
 `--term` is `10` (1학기), `20` (2학기), `15` (여름계절) or `25` (겨울계절).
+
+`--previous` (or `-p`) steps one semester back from the resolved semester:
+
+| given | previous |
+| --- | --- |
+| 2026 1학기 (`10`) | 2025 2학기 (`20`) |
+| 2026 2학기 (`20`) | 2026 1학기 (`10`) |
+| 2026 여름계절 (`15`) | 2026 1학기 (`10`) |
+| 2026 겨울계절 (`25`) | 2026 2학기 (`20`) |
+
+It composes with `--year`/`--term` (`--year 2026 --term 10 --previous` →
+2025-2), and the merged `offerings` block records the shifted semester. Note the
+block is replaced, not appended: pass `--out` to keep both semesters' data.
 
 The merge is textual: only the trailing `offerings` member is rewritten, so the
 hand-curated `collegeAliases` and `departments` sections keep their formatting.
