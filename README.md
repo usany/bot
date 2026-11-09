@@ -101,6 +101,12 @@ hand-curated `departments` section keeps its formatting.
 `lib/catalogue.ts` exposes the result through `loadOfferings()` (map by term
 code), `latestOfferings()` and `lecturesForDegree(degree, termCode?)`.
 
+When a user asks which lectures a department offers ("what lectures does the
+Big Data department have?"), the chat calls the `get_lectures` MCP tool
+(`mcp/server.py`) — a read of the `offerings` data, not a website scrape — and
+answers with the course list, translating Korean course titles to English when
+the user writes in English.
+
 What it does:
 
 1. `GET /` → `/login?attribute=loginFrame` → `/core?attribute=coreLectureList`

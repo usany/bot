@@ -562,6 +562,101 @@ def get_curriculum(
 
 
 @mcp.tool(
+    title="Get lectures offered by a department",
+    structured_output=True,
+    description=(
+        "Return the lectures a department offers, read from the crawled "
+        "timetable in colleges.json (`offerings`). This is the canonical "
+        "course/timetable list — do not scrape the website for it. Resolve "
+        "the user's wording to a canonical Korean degree name first. "
+        "Optionally pass a term code like '202620'; omit it to return every "
+        "crawled semester (newest first). Returns a JSON object {degree, "
+        "college, url, semesters} where each semester has {term_code, "
+        "semester, year, lecture_count, lectures} and each lecture has "
+        "{subject_cd, name_ko, category_en, category_ko, field_gb, credits, "
+        "grade, campus, note}."
+    ),
+)
+def get_lectures(
+    degree: Annotated[str, "Canonical degree/department name, Korean (e.g. '빅데이터응용학과')."],
+    term_code: Annotated[str, "Optional term code like '202620'. Omit to return all crawled semesters."] = "",
+) -> dict[str, Any]:
+    """Return lectures for a degree from the colleges.json timetable."""
+    entry = _find_degree(degree)
+    if entry is None:
+        return {
+            "degree": None,
+            "college": None,
+            "url": None,
+            "semesters": [],
+            "error": "not_found",
+        }
+
+    data = _load_data()
+    offerings = data.get("offerings") or {}
+    canonical = entry["degree"]
+
+    if term_code:
+        codes = [term_code] if term_code in offerings else []
+    else:
+        codes = sorted(offerings.keys(), reverse=True)
+
+    semesters: list[dict[str, Any]] = []
+    for code in codes:
+        sem = offerings[code]
+        legend = sem.get("fieldGbLegend") or {}
+        lectures: list[dict[str, Any]] = []
+        seen: set[tuple[Any, ...]] = set()
+        for college in sem.get("colleges", []):
+            for dept in college.get("departments", []):
+                if dept.get("catalogue") != canonical:
+                    continue
+                for lec in dept.get("lectures", []):
+                    key = (
+                        lec.get("subjectCd"),
+                        lec.get("name"),
+                        lec.get("credits"),
+                        lec.get("grade"),
+                    )
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    fg = lec.get("fieldGb") or ""
+                    label = legend.get(fg) or {}
+                    lectures.append(
+                        {
+                            "subject_cd": lec.get("subjectCd"),
+                            "name_ko": lec.get("name"),
+                            "category_en": label.get("en"),
+                            "category_ko": label.get("ko"),
+                            "field_gb": fg,
+                            "credits": lec.get("credits"),
+                            "grade": lec.get("grade"),
+                            "campus": lec.get("campus"),
+                            "note": lec.get("note"),
+                        }
+                    )
+        if lectures:
+            semesters.append(
+                {
+                    "term_code": code,
+                    "semester": sem.get("semester"),
+                    "year": sem.get("year"),
+                    "lecture_count": len(lectures),
+                    "lectures": lectures,
+                }
+            )
+
+    return {
+        "degree": canonical,
+        "college": entry["college"],
+        "url": entry.get("url"),
+        "semesters": semesters,
+        "error": None,
+    }
+
+
+@mcp.tool(
     title="Fetch web page text (generic)",
     structured_output=True,
     description=(

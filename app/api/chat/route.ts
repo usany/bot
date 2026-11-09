@@ -35,7 +35,7 @@ export async function POST(request: Request) {
   let context = ''
   let tool: string | null = null
   try {
-    const result = await fetchCatalogueContext(message)
+    const result = await fetchCatalogueContext(message, prior)
     if (result) {
       context = result.content
       tool = result.tool
@@ -51,6 +51,8 @@ export async function POST(request: Request) {
     ? undefined
     : tool === 'get_curriculum'
       ? `You are a helpful assistant. The user asked about a specific degree's curriculum or courses. Use the curriculum/course information below (retrieved from the department's official website) to answer in natural language, in the same language the user wrote. Do not invent courses, credits, or requirements beyond what is provided.\n\n${context}`
+      : tool === 'get_lectures'
+        ? `You are a helpful assistant. The user asked what lectures/courses a department offers (its timetable). Use the data below (the university's course offerings read from the college catalogue) to answer in natural language, in the same language the user wrote. Each lecture has a Korean title (name_ko) plus its English category (category_en), subject code, credits, grade/year level, campus, and note. When the user writes in English, translate each name_ko into clear English and present the subject code, English title, credits, category, and grade. Do not invent lectures beyond what is listed.\n\n${context}`
       : tool === 'get_department'
         ? `You are a helpful assistant. The user asked about a specific degree/department. Use the details below (retrieved from the department's official homepage) to answer in natural language, in the same language the user wrote. Do not invent facts, requirements, or numbers beyond what is provided.\n\n${context}`
         : tool === 'get_catalogue'

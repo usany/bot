@@ -107,8 +107,17 @@ export interface DegreeQueryResult {
  * keeps the dispatch table-driven and lets the server's tool surface grow
  * without a matching set of booleans here.
  */
-export async function checkDegreeQuery(message: string): Promise<DegreeQueryResult> {
+export async function checkDegreeQuery(
+  message: string,
+  history: Array<{ role: string; content: string }> = [],
+): Promise<DegreeQueryResult> {
   const catalogue = catalogueText()
+  const historyText = history
+    .map((m) => `${m.role}: ${m.content}`)
+    .join('\n')
+  const userContent = historyText
+    ? `Conversation so far:\n${historyText}\n\nLatest message: ${message}`
+    : message
 
   const completion = await openai.chat.completions.create({
     model: CHAT_MODEL,
@@ -116,7 +125,7 @@ export async function checkDegreeQuery(message: string): Promise<DegreeQueryResu
       {
         role: 'system',
         content:
-          'You classify a single chat message about university study. ' +
+          'You classify the latest user message in a chat about university study. ' +
           'Here is the canonical catalogue of degrees ("degree — college"), ' +
           'one per line; every line is a valid department you may name:\n' +
           catalogue +
@@ -126,13 +135,15 @@ export async function checkDegreeQuery(message: string): Promise<DegreeQueryResu
           '- "search_catalogue": the user is asking what to study, for a recommendation, or which major matches their interest. Put a concise **Korean** summary of the interest in `interest` (translate the user\'s words into Korean, using the Korean terms that appear in the catalogue above) and leave `degree` empty.\n' +
           '- "get_department": the user asks for general details or an introduction about one specific department. Resolve it to the exact canonical `degree` string (the Korean name before " — "), translating synonyms/any language (e.g. "math" -> "수학과").\n' +
           '- "get_curriculum": the user asks specifically about a department\'s curriculum, courses, 교과과정, 교육과정, 이수체계, 졸업요건, or required credits. Resolve the department to the canonical `degree` string.\n' +
+          '- "get_lectures": the user asks which lectures/classes/courses/timetable a specific department offers right now (a list of classes to enrol in, 강의, 수업, 시간표, 개설강좌, 개설과목). Resolve the department to the canonical `degree` string.\n' +
           '- "get_catalogue": the user asks for department details in general without naming one (e.g. "what departments do you have", "부서 정보"). Leave `degree` empty.\n' +
           'If the named department is not in the catalogue, set `tool` to "" (empty). ' +
-          'If no intent applies, `tool` is "" and `degree` is "". Work in any language the user wrote.\n' +
+          'If no intent applies, `tool` is "" and `degree` is "". Work in any language the user wrote. ' +
+          'When the message refers back to an earlier department (e.g. "the department", "it", "its lectures"), use the conversation history to resolve `degree`.\n' +
           '`college` is only set when the user names a specific college to filter by; otherwise "". ' +
           'When set, `college` must be the exact **Korean** college name from the catalogue lines (translate from the user\'s language, e.g. "college of science" -> "이과대학").',
       },
-      { role: 'user', content: message },
+      { role: 'user', content: userContent },
     ],
     response_format: { type: 'json_object' },
   })
@@ -153,6 +164,7 @@ export const CATALOGUE_TOOLS = [
   'search_catalogue',
   'get_department',
   'get_curriculum',
+  'get_lectures',
   'get_catalogue',
 ] as const
 
@@ -171,6 +183,7 @@ export function buildToolArgs(
       return { interest: gate.interest, college: gate.college }
     case 'get_department':
     case 'get_curriculum':
+    case 'get_lectures':
       return { degree: gate.degree || gate.interest }
     case 'get_catalogue':
       return {}
@@ -182,11 +195,14 @@ export function buildToolArgs(
  * output and which tool produced it (so the chat route can tailor its system
  * prompt). Returns null when no catalogue tool applies.
  */
-export async function fetchCatalogueContext(message: string): Promise<{
+export async function fetchCatalogueContext(
+  message: string,
+  history: Array<{ role: string; content: string }> = [],
+): Promise<{
   tool: CatalogueTool
   content: string
 } | null> {
-  const gate = await checkDegreeQuery(message)
+  const gate = await checkDegreeQuery(message, history)
   if (!gate.tool || !(CATALOGUE_TOOLS as readonly string[]).includes(gate.tool)) {
     return null
   }
