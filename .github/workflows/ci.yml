@@ -20,7 +20,7 @@ env:
 jobs:
   quality:
     name: Lint & Typecheck
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, oci-vm]
     steps:
       - uses: actions/checkout@v4
 
@@ -44,7 +44,7 @@ jobs:
 
   build:
     name: Build
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, oci-vm]
     needs: quality
     steps:
       - uses: actions/checkout@v4
