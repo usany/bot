@@ -62,7 +62,7 @@ function parseArgs(argv: string[]): Args {
 	const args: Args = {
 		year: null,
 		term: null,
-		out: "colleges.json",
+		out: "mcp/colleges.json",
 		delay: 250,
 		previous: false,
 	};
@@ -618,7 +618,7 @@ async function main(): Promise<void> {
 	const args = parseArgs(process.argv.slice(2));
 	if (args.help) {
 		console.log(
-			"usage: node scripts/crawl-lectures.ts [--year Y] [--term 10|20|15|25] [--previous] [--out colleges.json]",
+			"usage: node scripts/crawl-lectures.ts [--year Y] [--term 10|20|15|25] [--previous] [--out mcp/colleges.json]",
 		);
 		console.log(
 			"       without --term the current semester and the previous one are crawled",
@@ -639,7 +639,7 @@ async function main(): Promise<void> {
 	});
 
 	const catalogue = JSON.parse(
-		await readFile(join(ROOT, "colleges.json"), "utf8"),
+		await readFile(join(ROOT, "mcp", "colleges.json"), "utf8"),
 	) as Catalogue;
 	const colleges = [
 		...new Set(Object.values(catalogue.departments).map((d) => d.college)),

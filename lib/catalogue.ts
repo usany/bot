@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 /**
- * The canonical college catalogue, read directly from colleges.json (repo root)
+ * The canonical college catalogue, read directly from mcp/colleges.json
  * on the Next.js server. This is the same source of truth the Python MCP server
  * loads, but surfaced here so the LLM can resolve a user's phrasing (in any
  * language) to the exact `degree` key the MCP tool expects.
@@ -97,7 +97,7 @@ function rawCatalogue(): {
   offerings: LectureOfferings
 } {
   if (_cache) return _cache
-  const path = join(process.cwd(), 'colleges.json')
+  const path = join(process.cwd(), 'mcp', 'colleges.json')
   const raw = JSON.parse(readFileSync(path, 'utf-8')) as RawCatalogue
   const departments = raw.departments ?? {}
   const entries: CatalogueEntry[] = Object.entries(departments).map(([degree, meta]) => ({

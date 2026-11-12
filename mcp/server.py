@@ -57,7 +57,7 @@ mcp = MCPServer(
     ),
 )
 
-COLLEGES_PATH = Path(__file__).resolve().parent.parent / "colleges.json"
+COLLEGES_PATH = Path(__file__).resolve().parent / "colleges.json"
 
 # Matching is done against the canonical Korean degree/college names in
 # colleges.json — the single source of truth shared with the Next.js server.
